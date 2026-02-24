@@ -10,37 +10,23 @@ description = "SENTINEL Host — The Jailer: orchestration, I/O, and capability 
 name = "sentinel"
 path = "src/main.rs"
 
+[lib]
+name = "sentinel_host"
+path = "src/lib.rs"
+
 [dependencies]
 sentinel-shared = { path = "../sentinel-shared" }
-
-# Wasm runtime
 wasmtime = { version = "27", features = ["component-model"] }
-
-# Async runtime
 tokio = { version = "1", features = ["full"] }
-
-# Cryptographic signing for HITL
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand = "0.8"
-
-# Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# HTTP Client
 reqwest = { version = "0.12", features = ["json"] }
-
-# Observability
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Async trait for LLM provider abstraction
 async-trait = "0.1"
-
-# Error handling
 thiserror = { workspace = true }
 anyhow = "1"
-
-# CLI
 clap = { version = "4", features = ["derive"] }
 wasmtime-wasi = "27.0.0"
