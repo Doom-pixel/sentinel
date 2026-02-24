@@ -1,4 +1,17 @@
-package sentinel:agent;
+/// SENTINEL — WIT Interface Definition
+///
+/// This schema defines the secure bridge between the Host (Jailer)
+/// and the Guest (sandboxed AI agent). All Guest access to host
+/// resources MUST pass through these interfaces.
+///
+/// Security invariants:
+///   1. The Guest has ZERO direct syscall access.
+///   2. Every resource access requires a valid CapabilityToken.
+///   3. High-risk actions require HITL manifest approval.
+
+package sentinel:agent@0.1.0;
+
+// ─── Capability-Based Resource Access ─────────────────────────────────────
 
 interface capabilities {
     record capability-token {
@@ -13,83 +26,90 @@ interface capabilities {
 
     request-fs-read: func(path: string, justification: string) -> capability-result;
     request-fs-write: func(path: string, justification: string) -> capability-result;
-    request-network: func(url: string, justification: string) -> capability-result;
-    
-    release-capability: func(token: capability-token);
-}
+    request-net-outbound: func(url: string, method: string, justification: string) -> capability-result;
+    request-ui-observe: func() -> capability-result;
+    request-ui-dispatch: func(event-type: string) -> capability-result;
+    release-capability: func(token-id: string) -> bool;
 
-interface logging {
-    variant log-level {
-        trace,
-        debug,
-        info,
-        warn,
-        error,
+    fs-read: func(token-id: string, path: string) -> result<list<u8>, string>;
+    fs-write: func(token-id: string, path: string, data: list<u8>) -> result<bool, string>;
+    fs-list-dir: func(token-id: string, path: string) -> result<list<string>, string>;
+
+    net-request: func(
+        token-id: string,
+        url: string,
+        method: string,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+    ) -> result<net-response, string>;
+
+    ui-get-state: func(token-id: string) -> result<string, string>;
+    ui-send-event: func(token-id: string, event-type: string, payload: string) -> result<bool, string>;
+
+    record net-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
     }
-
-    log: func(level: log-level, target: string, message: string);
-}
-
-interface reasoning {
-    record chat-message {
-        role: string,
-        content: string,
-    }
-
-    record token-usage {
-        prompt-tokens: u32,
-        completion-tokens: u32,
-        total-tokens: u32,
-    }
-
-    record completion-response {
-        content: string,
-        model: string,
-        usage: token-usage,
-        finish-reason: string,
-    }
-
-    complete: func(
-        messages: list<chat-message>,
-        max-tokens: option<u32>,
-        temperature: option<f32>,
-        response-format-json: option<string>
-    ) -> result<completion-response, string>;
 }
 
 interface hitl {
-    use capabilities.{capability-token};
-
-    enum risk-level {
-        low,
-        medium,
-        high,
-        critical,
-    }
+    enum risk-level { low, medium, high, critical }
 
     record execution-manifest {
         id: string,
         action-description: string,
-        risk: risk-level,
         parameters-json: string,
+        risk: risk-level,
     }
 
     variant approval-result {
-        approved(string), // signature
-        denied(string),   // reason
-        pending(string),  // manifest id
+        approved(manifest-approval),
+        rejected(string),
+        timed-out,
+    }
+
+    record manifest-approval {
+        manifest-id: string,
+        signature: list<u8>,
+        approver-key: list<u8>,
     }
 
     submit-manifest: func(manifest: execution-manifest) -> approval-result;
     check-approval: func(manifest-id: string) -> approval-result;
 }
 
+interface logging {
+    enum log-level { trace, debug, info, warn, error }
+    log: func(level: log-level, target: string, message: string);
+}
+
+interface reasoning {
+    record chat-message { role: string, content: string }
+    record token-usage { prompt-tokens: u32, completion-tokens: u32, total-tokens: u32 }
+    record completion-response {
+        content: string,
+        model: string,
+        usage: token-usage,
+        finish-reason: option<string>,
+    }
+
+    complete: func(
+        messages: list<chat-message>,
+        max-tokens: option<u32>,
+        temperature: option<f32>,
+        response-format-json: option<string>,
+    ) -> result<completion-response, string>;
+
+    get-provider-name: func() -> string;
+}
+
 world sentinel-guest {
     import capabilities;
+    import hitl;
     import logging;
     import reasoning;
-    import hitl;
 
-    export run: func();
-    export handle-event: func(event-type: string, data: string);
+    export run: func(context-json: string) -> s32;
+    export handle-event: func(event-type: string, payload-json: string) -> string;
 }
