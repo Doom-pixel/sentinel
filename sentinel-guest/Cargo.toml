@@ -1,0 +1,18 @@
+[package]
+name = "sentinel-guest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SENTINEL Guest Agent"
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "sentinel:agent"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+wit-bindgen = "0.36.0"
