@@ -4,6 +4,7 @@ members = [
     "sentinel-guest-api",
     "sentinel-guest",
     "sentinel-shared",
+    "sentinel-ui/src-tauri",
 ]
 resolver = "2"
 
