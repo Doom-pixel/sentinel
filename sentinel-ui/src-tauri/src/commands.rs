@@ -46,6 +46,7 @@ pub async fn start_agent(
     state: State<'_, Mutex<AgentState>>,
     provider: String,
     model: String,
+    api_key: Option<String>,
     target_directory: String,
     task_prompt: String,
 ) -> Result<AgentResult, String> {
@@ -60,25 +61,27 @@ pub async fn start_agent(
     config.filesystem.allowed_read_dirs = vec![PathBuf::from(&target_directory)];
     config.filesystem.allowed_write_dirs = vec![PathBuf::from(&target_directory)];
 
-    // Resolve provider from env vars for API keys
-    let api_key = match provider.as_str() {
-        "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
-        "anthropic" => std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
-        "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
-        "grok" => std::env::var("XAI_API_KEY").unwrap_or_default(),
-        "google" => std::env::var("GOOGLE_API_KEY").unwrap_or_default(),
-        _ => String::new(),
-    };
+    // Use provided API key, falling back to env vars
+    let resolved_key = api_key.filter(|k| !k.is_empty()).unwrap_or_else(|| {
+        match provider.as_str() {
+            "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+            "anthropic" => std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+            "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+            "grok" => std::env::var("XAI_API_KEY").unwrap_or_default(),
+            "google" => std::env::var("GOOGLE_API_KEY").unwrap_or_default(),
+            _ => String::new(),
+        }
+    });
 
     config.llm.model = model.clone();
     config.llm.provider = match provider.as_str() {
         "ollama" => sentinel_host::llm::LlmProvider::Ollama { base_url: "http://localhost:11434".into() },
-        "openai" => sentinel_host::llm::LlmProvider::OpenAi { api_key: api_key.clone(), org_id: None },
-        "anthropic" => sentinel_host::llm::LlmProvider::Anthropic { api_key: api_key.clone() },
-        "deepseek" => sentinel_host::llm::LlmProvider::Deepseek { api_key: api_key.clone(), base_url: None },
-        "grok" => sentinel_host::llm::LlmProvider::Grok { api_key: api_key.clone() },
-        "google" => sentinel_host::llm::LlmProvider::Google { api_key: api_key.clone() },
-        other => sentinel_host::llm::LlmProvider::OpenAiCompatible { api_key: api_key.clone(), base_url: other.to_string() },
+        "openai" => sentinel_host::llm::LlmProvider::OpenAi { api_key: resolved_key.clone(), org_id: None },
+        "anthropic" => sentinel_host::llm::LlmProvider::Anthropic { api_key: resolved_key.clone() },
+        "deepseek" => sentinel_host::llm::LlmProvider::Deepseek { api_key: resolved_key.clone(), base_url: None },
+        "grok" => sentinel_host::llm::LlmProvider::Grok { api_key: resolved_key.clone() },
+        "google" => sentinel_host::llm::LlmProvider::Google { api_key: resolved_key.clone() },
+        other => sentinel_host::llm::LlmProvider::OpenAiCompatible { api_key: resolved_key.clone(), base_url: other.to_string() },
     };
 
     agent.is_running = true;

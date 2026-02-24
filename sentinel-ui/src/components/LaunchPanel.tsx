@@ -13,8 +13,12 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [provider, setProvider] = useState("ollama");
   const [model, setModel] = useState("llama3.1:8b");
+  const [apiKey, setApiKey] = useState("");
   const [targetDirectory, setTargetDirectory] = useState(".");
   const [taskPrompt, setTaskPrompt] = useState("Audit this codebase for security vulnerabilities.");
+
+  const selectedProvider = providers.find((p) => p.id === provider);
+  const needsKey = selectedProvider?.requires_key ?? false;
 
   useEffect(() => { invoke<ProviderInfo[]>("get_providers").then(setProviders); }, []);
 
@@ -24,6 +28,7 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
       await invoke("start_agent", {
         provider,
         model,
+        apiKey: needsKey ? apiKey : null,
         targetDirectory,
         taskPrompt,
       });
@@ -89,6 +94,20 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
           />
         </div>
       </div>
+
+      {needsKey && (
+          <div className="form-group">
+              <label className="form-label">API Key</label>
+              <input
+                  className="form-input"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="sk-..."
+                  disabled={isRunning}
+              />
+          </div>
+      )}
 
       <button
         className={`btn-launch ${isRunning ? "running" : ""}`}

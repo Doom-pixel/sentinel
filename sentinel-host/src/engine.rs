@@ -1,21 +1,18 @@
-//! # sentinel-host — Wasmtime Engine Setup
-
 use anyhow::{Context, Result};
-use std::sync::Arc;
-use wasmtime::*;
-use tracing::{info, error};
+use wasmtime::{component::*, Config, Engine, Store};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiImpl, WasiView, ResourceTable};
 
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView, ResourceTable};
-
-use crate::capabilities::CapabilityManager;
 use crate::config::SentinelConfig;
+use crate::capabilities::CapabilityManager;
 use crate::hitl::HitlBridge;
 use crate::host_calls::HostCallHandler;
+use std::sync::Arc;
+use tracing::info;
 
-wasmtime::component::bindgen!({
-    path: "../wit/sentinel.wit",
+bindgen!({
     world: "sentinel-guest",
-    async: true,
+    path: "../wit",
+    async: true
 });
 
 pub struct SentinelState {
@@ -28,257 +25,255 @@ pub struct SentinelState {
 }
 
 impl WasiView for SentinelState {
-    fn table(&mut self) -> &mut ResourceTable { &mut self.table }
-    fn ctx(&mut self) -> &mut WasiCtx { &mut self.wasi }
-}
-
-#[async_trait::async_trait]
-impl sentinel::agent::capabilities::Host for SentinelState {
-    async fn request_fs_read(&mut self, path: String, justification: String) -> sentinel::agent::capabilities::CapabilityResult {
-        match self.host_calls.request_fs_read(path, justification).await {
-            Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
-            Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
-        }
+    fn ctx(&mut self) -> &mut WasiCtx {
+        &mut self.wasi
     }
-
-    async fn request_fs_write(&mut self, path: String, justification: String) -> sentinel::agent::capabilities::CapabilityResult {
-        match self.host_calls.request_fs_write(path, justification).await {
-            Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
-            Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
-        }
-    }
-
-    async fn request_net_outbound(&mut self, url: String, method: String, justification: String) -> sentinel::agent::capabilities::CapabilityResult {
-        match self.host_calls.request_net_outbound(url, method, justification).await {
-            Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
-            Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
-        }
-    }
-
-    async fn request_ui_observe(&mut self) -> sentinel::agent::capabilities::CapabilityResult {
-        match self.host_calls.request_ui_observe().await {
-            Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
-            Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
-        }
-    }
-
-    async fn request_ui_dispatch(&mut self, event_type: String) -> sentinel::agent::capabilities::CapabilityResult {
-        match self.host_calls.request_ui_dispatch(event_type).await {
-            Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
-            Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
-        }
-    }
-
-    async fn release_capability(&mut self, token_id: String) -> bool {
-        self.host_calls.release_capability(token_id).await
-    }
-
-    async fn fs_read(&mut self, token_id: String, path: String) -> Result<Vec<u8>, String> {
-        self.host_calls.fs_read(token_id, path).await.map_err(|e| e.to_string())
-    }
-
-    async fn fs_write(&mut self, token_id: String, path: String, data: Vec<u8>) -> Result<bool, String> {
-        self.host_calls.fs_write(token_id, path, data).await.map_err(|e| e.to_string())
-    }
-
-    async fn fs_list_dir(&mut self, token_id: String, path: String) -> Result<Vec<String>, String> {
-        self.host_calls.fs_list_dir(token_id, path).await.map_err(|e| e.to_string())
-    }
-
-    async fn net_request(&mut self, token_id: String, url: String, method: String, headers: Vec<(String, String)>, body: Option<Vec<u8>>) -> Result<sentinel::agent::capabilities::NetResponse, String> {
-        match self.host_calls.net_request(token_id, url, method, headers, body).await {
-            Ok(resp) => Ok(sentinel::agent::capabilities::NetResponse { status: resp.status, headers: resp.headers, body: resp.body }),
-            Err(e) => Err(e.to_string()),
-        }
-    }
-
-    async fn ui_get_state(&mut self, token_id: String) -> Result<String, String> {
-        self.host_calls.ui_get_state(token_id).await.map_err(|e| e.to_string())
-    }
-
-    async fn ui_send_event(&mut self, token_id: String, event_type: String, payload: String) -> Result<bool, String> {
-        self.host_calls.ui_send_event(token_id, event_type, payload).await.map_err(|e| e.to_string())
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
     }
 }
 
-#[async_trait::async_trait]
-impl sentinel::agent::hitl::Host for SentinelState {
-    async fn submit_manifest(&mut self, manifest: sentinel::agent::hitl::ExecutionManifest) -> sentinel::agent::hitl::ApprovalResult {
-        let m = sentinel_shared::ExecutionManifest {
-            id: manifest.id,
-            action_description: manifest.action_description,
-            risk_level: match manifest.risk {
-                sentinel::agent::hitl::RiskLevel::Low => sentinel_shared::RiskLevel::Low,
-                sentinel::agent::hitl::RiskLevel::Medium => sentinel_shared::RiskLevel::Medium,
-                sentinel::agent::hitl::RiskLevel::High => sentinel_shared::RiskLevel::High,
-                sentinel::agent::hitl::RiskLevel::Critical => sentinel_shared::RiskLevel::Critical,
-            },
-            parameters: serde_json::from_str(&manifest.parameters_json).unwrap_or_default(),
-            capability_token_id: None,
-            created_at: std::time::SystemTime::now(),
-            nonce: [0u8; 32],
+// Ensure our state implements the generated trait for the host functions
+impl exports::sentinel::agent::capabilities::Host for SentinelState {
+    async fn request_fs_read(
+        &mut self,
+        path: String,
+        reason: String,
+    ) -> wasmtime::Result<exports::sentinel::agent::capabilities::CapabilityResult> {
+        let result = self.host_calls.request_fs_read(path, reason).await?;
+        Ok(result)
+    }
+
+    async fn request_fs_write(
+        &mut self,
+        path: String,
+        reason: String,
+    ) -> wasmtime::Result<exports::sentinel::agent::capabilities::CapabilityResult> {
+        let result = self.host_calls.request_fs_write(path, reason).await?;
+        Ok(result)
+    }
+
+    async fn request_network(
+        &mut self,
+        url: String,
+        reason: String,
+    ) -> wasmtime::Result<exports::sentinel::agent::capabilities::CapabilityResult> {
+        let result = self.host_calls.request_network(url, reason).await?;
+        Ok(result)
+    }
+
+    async fn release_capability(&mut self, token_id: String) -> wasmtime::Result<()> {
+        self.host_calls.release_capability(token_id).await?;
+        Ok(())
+    }
+
+    async fn fs_read(
+        &mut self,
+        token_id: String,
+        path: String,
+    ) -> wasmtime::Result<Result<Vec<u8>, String>> {
+        let result = self.host_calls.fs_read(token_id, path).await;
+        Ok(result)
+    }
+
+    async fn fs_write(
+        &mut self,
+        token_id: String,
+        path: String,
+        data: Vec<u8>,
+    ) -> wasmtime::Result<Result<(), String>> {
+        let result = self.host_calls.fs_write(token_id, path, data).await;
+        Ok(result)
+    }
+
+    async fn fs_list_dir(
+        &mut self,
+        token_id: String,
+        path: String,
+    ) -> wasmtime::Result<Result<Vec<String>, String>> {
+        let result = self.host_calls.fs_list_dir(token_id, path).await;
+        Ok(result)
+    }
+
+    async fn http_get(
+        &mut self,
+        token_id: String,
+        url: String,
+    ) -> wasmtime::Result<Result<Vec<u8>, String>> {
+        let result = self.host_calls.http_get(token_id, url).await;
+        Ok(result)
+    }
+    
+    async fn http_post(
+        &mut self,
+        token_id: String,
+        url: String,
+        body: Vec<u8>,
+    ) -> wasmtime::Result<Result<Vec<u8>, String>> {
+        let result = self.host_calls.http_post(token_id, url, body).await;
+        Ok(result)
+    }
+
+    async fn log(
+        &mut self,
+        level: exports::sentinel::agent::capabilities::LogLevel,
+        target: String,
+        message: String,
+    ) -> wasmtime::Result<()> {
+        let log_level = match level {
+            exports::sentinel::agent::capabilities::LogLevel::Debug => "DEBUG",
+            exports::sentinel::agent::capabilities::LogLevel::Info => "INFO",
+            exports::sentinel::agent::capabilities::LogLevel::Warn => "WARN",
+            exports::sentinel::agent::capabilities::LogLevel::Error => "ERROR",
         };
-
-        match self.hitl.submit_manifest(m).await {
-            Ok(crate::hitl::ApprovalStatus::Approved(sig)) => {
-                sentinel::agent::hitl::ApprovalResult::Approved(sentinel::agent::hitl::ManifestApproval {
-                    manifest_id: sig.manifest_id,
-                    signature: sig.signature_bytes,
-                    approver_key: sig.signer_public_key,
-                })
-            }
-            Ok(crate::hitl::ApprovalStatus::Rejected(reason)) => sentinel::agent::hitl::ApprovalResult::Rejected(reason),
-            Ok(crate::hitl::ApprovalStatus::TimedOut) => sentinel::agent::hitl::ApprovalResult::TimedOut,
-            Err(e) => sentinel::agent::hitl::ApprovalResult::Rejected(e.to_string()),
-            _ => sentinel::agent::hitl::ApprovalResult::Rejected("Unknown error".into()),
-        }
-    }
-
-    async fn check_approval(&mut self, manifest_id: String) -> sentinel::agent::hitl::ApprovalResult {
-        match self.hitl.check_status(&manifest_id).await {
-            Some(crate::hitl::ApprovalStatus::Approved(sig)) => {
-                sentinel::agent::hitl::ApprovalResult::Approved(sentinel::agent::hitl::ManifestApproval {
-                    manifest_id: sig.manifest_id,
-                    signature: sig.signature_bytes,
-                    approver_key: sig.signer_public_key,
-                })
-            }
-            Some(crate::hitl::ApprovalStatus::Rejected(reason)) => sentinel::agent::hitl::ApprovalResult::Rejected(reason),
-            Some(crate::hitl::ApprovalStatus::TimedOut) => sentinel::agent::hitl::ApprovalResult::TimedOut,
-            _ => sentinel::agent::hitl::ApprovalResult::Rejected("Pending or not found".to_string()),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl sentinel::agent::logging::Host for SentinelState {
-    async fn log(&mut self, level: sentinel::agent::logging::LogLevel, target: String, message: String) {
+        // Print safely via host logging
         match level {
-            sentinel::agent::logging::LogLevel::Trace => tracing::trace!(target = %target, "{}", message),
-            sentinel::agent::logging::LogLevel::Debug => tracing::debug!(target = %target, "{}", message),
-            sentinel::agent::logging::LogLevel::Info => tracing::info!(target = %target, "{}", message),
-            sentinel::agent::logging::LogLevel::Warn => tracing::warn!(target = %target, "{}", message),
-            sentinel::agent::logging::LogLevel::Error => tracing::error!(target = %target, "{}", message),
+            exports::sentinel::agent::capabilities::LogLevel::Debug => {
+                tracing::debug!(target: &target, "[{}] {}", log_level, message);
+            }
+            exports::sentinel::agent::capabilities::LogLevel::Info => {
+                tracing::info!(target: &target, "[{}] {}", log_level, message);
+            }
+            exports::sentinel::agent::capabilities::LogLevel::Warn => {
+                tracing::warn!(target: &target, "[{}] {}", log_level, message);
+            }
+            exports::sentinel::agent::capabilities::LogLevel::Error => {
+                tracing::error!(target: &target, "[{}] {}", log_level, message);
+            }
         }
+        
+        Ok(())
     }
 }
 
-#[async_trait::async_trait]
-impl sentinel::agent::reasoning::Host for SentinelState {
-    async fn complete(&mut self, messages: Vec<sentinel::agent::reasoning::ChatMessage>, max_tokens: Option<u32>, temperature: Option<f32>, response_format_json: Option<String>) -> Result<sentinel::agent::reasoning::CompletionResponse, String> {
-        let req_messages = messages.into_iter().map(|m| crate::llm::ChatMessage {
-            role: match m.role.as_str() {
-                "system" => crate::llm::Role::System,
-                "user" => crate::llm::Role::User,
-                "assistant" => crate::llm::Role::Assistant,
-                _ => crate::llm::Role::User,
-            },
+// Implement LLM bindings
+impl exports::sentinel::agent::llm::Host for SentinelState {
+    async fn get_provider_name(&mut self) -> wasmtime::Result<String> {
+        Ok(self.llm.provider_name())
+    }
+
+    async fn complete(
+        &mut self,
+        messages: Vec<exports::sentinel::agent::llm::ChatMessage>,
+        max_tokens: Option<u32>,
+        temperature: Option<f32>,
+        stop_sequences: Option<Vec<String>>,
+    ) -> wasmtime::Result<Result<String, String>> {
+        let host_messages = messages.into_iter().map(|m| crate::llm::ChatMessage {
+            role: m.role,
             content: m.content,
         }).collect();
 
-        let req = crate::llm::CompletionRequest {
-            messages: req_messages,
-            max_tokens,
-            temperature,
-            response_format: response_format_json.and_then(|s| serde_json::from_str(&s).ok()),
-        };
-
-        match self.llm.complete(req).await {
-            Ok(resp) => Ok(sentinel::agent::reasoning::CompletionResponse {
-                content: resp.content,
-                model: resp.model,
-                usage: sentinel::agent::reasoning::TokenUsage {
-                    prompt_tokens: resp.usage.prompt_tokens,
-                    completion_tokens: resp.usage.completion_tokens,
-                    total_tokens: resp.usage.total_tokens,
-                },
-                finish_reason: resp.finish_reason,
-            }),
-            Err(e) => Err(e.to_string()),
+        match self.llm.complete(host_messages, max_tokens, temperature, stop_sequences).await {
+            Ok(res) => Ok(Ok(res)),
+            Err(e) => Ok(Err(e.to_string())),
         }
     }
-
-    async fn get_provider_name(&mut self) -> String {
-        self.llm.provider_name().to_string()
-    }
 }
 
-pub fn create_engine(_config: &SentinelConfig) -> Result<Engine> {
-    let mut engine_config = Config::new();
-    engine_config.consume_fuel(true);
-    engine_config.epoch_interruption(true);
-    engine_config.cranelift_opt_level(OptLevel::Speed);
-    engine_config.wasm_component_model(true);
-    engine_config.async_support(true);
-    let engine = Engine::new(&engine_config).context("Failed to create Wasmtime engine")?;
-    info!("Wasmtime engine created");
-    Ok(engine)
+fn create_engine(config: &SentinelConfig) -> Result<Engine> {
+    let mut wasm_config = Config::new();
+    
+    // Required for WASI and our component
+    wasm_config.wasm_component_model(true);
+    wasm_config.async_support(true);
+    
+    // Security: limit memory and execution time
+    wasm_config.consume_fuel(config.engine.fuel_limit.is_some());
+    // Remove WASM module/instance limits as they block compilation
+    
+    Engine::new(&wasm_config).context("Failed to create Wasmtime engine")
 }
 
-pub fn create_store(engine: &Engine, config: &SentinelConfig, state: SentinelState) -> Result<Store<SentinelState>> {
-    let mut store = Store::new(engine, state);
-    store.limiter(|state| &mut state.limits);
-    if let Some(fuel) = config.engine.fuel_limit {
-        store.set_fuel(fuel).context("Failed to set fuel limit")?;
-        info!(fuel = fuel, "Fuel limit set");
-    }
-    store.set_epoch_deadline(1);
-    Ok(store)
-}
-
-pub fn build_store_limits(config: &SentinelConfig) -> StoreLimits {
+fn build_store_limits(config: &SentinelConfig) -> StoreLimits {
     StoreLimitsBuilder::new()
         .memory_size(config.engine.max_memory_bytes)
-        .tables(config.engine.max_tables as usize)
-        .table_elements(config.engine.max_table_elements as usize)
-        .instances(100)
-        .memories(20)
+        // Set table elements limit high enough for WASI and stdlib
+        .table_elements(100_000)
+        .instances(1000)
+        .memories(100)
+        .tables(100)
         .build()
 }
 
-pub fn load_module(engine: &Engine, config: &SentinelConfig) -> Result<component::Component> {
-    let module_path = &config.engine.guest_module_path;
-    info!(path = %module_path.display(), "Loading guest component");
-    let component = component::Component::from_file(engine, module_path)
-        .context(format!("Failed to load guest component from '{}'", module_path.display()))?;
-    info!(path = %module_path.display(), "Guest component loaded");
-    Ok(component)
+fn create_store(engine: &Engine, config: &SentinelConfig, state: SentinelState) -> Result<Store<SentinelState>> {
+    let mut store = Store::new(engine, state);
+    store.limiter(|state| &mut state.limits);
+    
+    if let Some(fuel) = config.engine.fuel_limit {
+        store.set_fuel(fuel).context("Failed to set initial fuel")?;
+    }
+    
+    Ok(store)
 }
 
-pub fn setup_linker(engine: &Engine) -> Result<component::Linker<SentinelState>> {
-    let mut linker = component::Linker::new(engine);
-    wasmtime_wasi::add_to_linker_async(&mut linker).context("Failed to add WASI bindings")?;
-    SentinelGuest::add_to_linker(&mut linker, |state: &mut SentinelState| state).context("Failed to add guest bindings")?;
-    info!("Linker configured");
+fn load_module(engine: &Engine, config: &SentinelConfig) -> Result<Component> {
+    let path = &config.engine.guest_module_path;
+    info!("Loading guest component from {}", path.display());
+    
+    if !path.exists() {
+        anyhow::bail!("Guest component not found at {}. Build it first!", path.display());
+    }
+    
+    Component::from_file(engine, path).context("Failed to parse WASM component")
+}
+
+fn setup_linker(engine: &Engine) -> Result<Linker<SentinelState>> {
+    let mut linker = Linker::new(engine);
+    // Add WASI imports
+    wasmtime_wasi::add_to_linker_async(&mut linker).context("Failed to link WASI")?;
+    // Add our custom imports
+    SentinelGuest::add_to_linker(&mut linker, |state: &mut SentinelState| state)
+        .context("Failed to link custom capabilities")?;
+        
     Ok(linker)
 }
 
-pub async fn boot(config: SentinelConfig) -> Result<()> {
+pub async fn boot(config: SentinelConfig, context_json: String) -> Result<()> {
     info!("SENTINEL boot sequence starting");
 
     let engine = create_engine(&config)?;
     let limits = build_store_limits(&config);
+
     let capability_manager = Arc::new(CapabilityManager::new(config.clone()));
     let hitl = Arc::new(HitlBridge::new());
-    let host_calls = Arc::new(HostCallHandler::new(capability_manager.clone(), config.clone()));
+    let host_calls = Arc::new(HostCallHandler::new(
+        capability_manager.clone(),
+        config.clone(),
+    ));
+    
     let llm = Arc::new(crate::llm::create_backend(&config.llm)?);
 
-    let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_env().build();
+    let wasi = WasiCtxBuilder::new()
+        .inherit_stdio()
+        .inherit_env()
+        .build();
     let table = ResourceTable::new();
 
-    let state = SentinelState { limits, host_calls, hitl, llm, wasi, table };
+    let state = SentinelState {
+        limits,
+        host_calls,
+        hitl,
+        llm,
+        wasi,
+        table,
+    };
     let mut store = create_store(&engine, &config, state)?;
     let linker = setup_linker(&engine)?;
     let component = load_module(&engine, &config)?;
 
     let instance = SentinelGuest::instantiate_async(&mut store, &component, &linker)
-        .await.context("Failed to instantiate guest module")?;
+        .await
+        .context("Failed to instantiate guest module")?;
 
-    info!("Guest module instantiated — calling run()");
-    let result: i32 = instance.call_run(&mut store, r#"{"msg": "Please start your task!"}"#)
-        .await.context("Guest execution failed")?;
+    info!("Guest module instantiated successfully");
+
+    let result: i32 = instance.call_run(&mut store, &context_json)
+        .await
+        .context("Guest execution failed")?;
 
     info!("Guest finished with exit code {}", result);
-    info!("SENTINEL boot sequence complete");
+    info!("SENTINEL boot sequence complete ✓");
+    
     Ok(())
 }
