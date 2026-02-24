@@ -1,4 +1,8 @@
 //! Tauri IPC Commands for the SENTINEL Dashboard.
+//!
+//! Bridges the React frontend to the sentinel-host engine via IPC commands.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use sentinel_host::config::SentinelConfig;
 use sentinel_host::hitl::ManifestInfo;
@@ -55,16 +59,33 @@ pub async fn start_agent(
         return Err("Agent is already running".into());
     }
 
-    // Check for WASM module path relative to Tauri execution dir
-    let mut wasm_path = PathBuf::from("../../target/wasm32-wasip1/debug/sentinel_guest.wasm");
+    // Robust approach to find the WASM module dynamically.
+    // The current working directory will be `sentinel-ui` if launched via `npm run tauri dev`,
+    // or the workspace root if launched from standard `cargo run`. We need to find the `target/wasm32-wasip1/` folder.
+    let mut wasm_path = PathBuf::from("target/wasm32-wasip1/debug/sentinel_guest.wasm");
+    
+    // First, try direct root
     if !wasm_path.exists() {
-        wasm_path = PathBuf::from("../target/wasm32-wasip1/debug/sentinel_guest.wasm");
-        if !wasm_path.exists() {
-            // Check direct root if running from workspace root via some other runner
-            wasm_path = PathBuf::from("target/wasm32-wasip1/debug/sentinel_guest.wasm");
-            if !wasm_path.exists() {
-                return Err("WASM module not found. Please compile the guest module first: `cargo build --target wasm32-wasip1` in the sentinel-guest directory.".into());
+        let current_dir = std::env::current_dir().unwrap_or_default();
+        
+        // Search upward until we find the root `Cargo.lock` or `sentinel-guest` dir
+        let mut curr = current_dir.as_path();
+        let mut found_root = false;
+        
+        while curr.parent().is_some() {
+            if curr.join("Cargo.lock").exists() && curr.join("sentinel-guest").exists() {
+                wasm_path = curr.join("target").join("wasm32-wasip1").join("debug").join("sentinel_guest.wasm");
+                found_root = true;
+                break;
             }
+            curr = curr.parent().unwrap();
+        }
+
+        if !found_root || !wasm_path.exists() {
+            return Err(format!(
+                "WASM module not found. Please compile the guest module first: `cargo build --target wasm32-wasip1` in the sentinel-guest directory. Looked in: {}",
+                wasm_path.display()
+            ));
         }
     }
 
