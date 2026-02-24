@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 interface ProviderInfo { id: string; name: string; requires_key: boolean; default_model: string; }
 interface LogEntry { level: string; target: string; message: string; }
@@ -49,14 +50,31 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
 
       <div className="form-group">
         <label className="form-label">Target Directory</label>
-        <input
-          className="form-input"
-          type="text"
-          value={targetDirectory}
-          onChange={(e) => setTargetDirectory(e.target.value)}
-          placeholder="/path/to/project"
-          disabled={isRunning}
-        />
+        <div style={{ display: "flex", gap: "8px" }}>
+          <input
+            className="form-input"
+            type="text"
+            value={targetDirectory}
+            onChange={(e) => setTargetDirectory(e.target.value)}
+            placeholder="/path/to/project"
+            disabled={isRunning}
+            style={{ flex: 1 }}
+          />
+          <button
+            type="button"
+            className="btn-launch"
+            style={{ width: "auto", padding: "0 15px", margin: 0 }}
+            onClick={async () => {
+              const selected = await open({ directory: true });
+              if (selected && typeof selected === "string") {
+                setTargetDirectory(selected);
+              }
+            }}
+            disabled={isRunning}
+          >
+            Browse
+          </button>
+        </div>
       </div>
 
       <div className="form-group">
