@@ -19,9 +19,6 @@ impl Default for AgentState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelConfig { pub provider: String, pub model: String, pub api_key: Option<String> }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderInfo { pub id: String, pub name: String, pub requires_key: bool, pub default_model: String }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,30 +32,46 @@ pub async fn get_providers() -> Vec<ProviderInfo> {
     vec![
         ProviderInfo { id: "ollama".into(), name: "Ollama (Local)".into(), requires_key: false, default_model: "llama3.1:8b".into() },
         ProviderInfo { id: "openai".into(), name: "OpenAI".into(), requires_key: true, default_model: "gpt-4o".into() },
-        ProviderInfo { id: "anthropic".into(), name: "Anthropic (Claude)".into(), requires_key: true, default_model: "claude-sonnet-4-20250514".into() },
+        ProviderInfo { id: "anthropic".into(), name: "Anthropic".into(), requires_key: true, default_model: "claude-sonnet-4-20250514".into() },
         ProviderInfo { id: "deepseek".into(), name: "Deepseek".into(), requires_key: true, default_model: "deepseek-chat".into() },
         ProviderInfo { id: "grok".into(), name: "xAI (Grok)".into(), requires_key: true, default_model: "grok-2".into() },
         ProviderInfo { id: "google".into(), name: "Google (Gemini)".into(), requires_key: true, default_model: "gemini-2.0-flash".into() },
     ]
 }
 
+/// Boot the SENTINEL agent with the given target directory and task prompt.
 #[tauri::command]
 pub async fn start_agent(
-    app: AppHandle, state: State<'_, Mutex<AgentState>>,
-    module_path: String, model_config: ModelConfig,
-    allow_read: Vec<String>, allow_write: Vec<String>,
+    app: AppHandle,
+    state: State<'_, Mutex<AgentState>>,
+    provider: String,
+    model: String,
+    target_directory: String,
+    task_prompt: String,
 ) -> Result<AgentResult, String> {
     let mut agent = state.lock().await;
-    if agent.is_running { return Ok(AgentResult { success: false, message: "Agent is already running".into() }); }
+    if agent.is_running {
+        return Ok(AgentResult { success: false, message: "Agent is already running".into() });
+    }
 
+    // Build config — target_directory is both the read and write scope
     let mut config = SentinelConfig::default();
-    config.engine.guest_module_path = PathBuf::from(&module_path);
-    config.filesystem.allowed_read_dirs = allow_read.iter().map(PathBuf::from).collect();
-    config.filesystem.allowed_write_dirs = allow_write.iter().map(PathBuf::from).collect();
+    config.engine.guest_module_path = PathBuf::from("target/wasm32-wasip1/debug/sentinel_guest.wasm");
+    config.filesystem.allowed_read_dirs = vec![PathBuf::from(&target_directory)];
+    config.filesystem.allowed_write_dirs = vec![PathBuf::from(&target_directory)];
 
-    let api_key = model_config.api_key.unwrap_or_default();
-    config.llm.model = model_config.model;
-    config.llm.provider = match model_config.provider.to_lowercase().as_str() {
+    // Resolve provider from env vars for API keys
+    let api_key = match provider.as_str() {
+        "openai" => std::env::var("OPENAI_API_KEY").unwrap_or_default(),
+        "anthropic" => std::env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        "deepseek" => std::env::var("DEEPSEEK_API_KEY").unwrap_or_default(),
+        "grok" => std::env::var("XAI_API_KEY").unwrap_or_default(),
+        "google" => std::env::var("GOOGLE_API_KEY").unwrap_or_default(),
+        _ => String::new(),
+    };
+
+    config.llm.model = model.clone();
+    config.llm.provider = match provider.as_str() {
         "ollama" => sentinel_host::llm::LlmProvider::Ollama { base_url: "http://localhost:11434".into() },
         "openai" => sentinel_host::llm::LlmProvider::OpenAi { api_key: api_key.clone(), org_id: None },
         "anthropic" => sentinel_host::llm::LlmProvider::Anthropic { api_key: api_key.clone() },
@@ -69,9 +82,11 @@ pub async fn start_agent(
     };
 
     agent.is_running = true;
+
     let hitl = Arc::new(sentinel_host::hitl::HitlBridge::new());
     let cap_mgr = Arc::new(sentinel_host::capabilities::CapabilityManager::new(config.clone()));
 
+    // Wire HITL to emit events to the frontend
     let app_handle = app.clone();
     hitl.set_approval_callback(Box::new(move |info: ManifestInfo| {
         let _ = app_handle.emit("sentinel://hitl-request", &info);
@@ -88,13 +103,35 @@ pub async fn start_agent(
     agent.capability_manager = Some(cap_mgr.clone());
     drop(agent);
 
+    // Build context JSON for the guest
+    let context_json = serde_json::json!({
+        "target_directory": target_directory,
+        "task_prompt": task_prompt,
+    }).to_string();
+
+    // Spawn agent execution in background
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let _ = app_handle.emit("sentinel://log", LogEntry { level: "info".into(), target: "dashboard".into(), message: format!("Booting SENTINEL with module: {}", module_path) });
-        match sentinel_host::engine::boot(config).await {
-            Ok(()) => { let _ = app_handle.emit("sentinel://log", LogEntry { level: "info".into(), target: "dashboard".into(), message: "Agent completed successfully".into() }); }
-            Err(e) => { let _ = app_handle.emit("sentinel://log", LogEntry { level: "error".into(), target: "dashboard".into(), message: format!("Agent error: {}", e) }); }
+        let _ = app_handle.emit("sentinel://log", LogEntry {
+            level: "info".into(), target: "sentinel".into(),
+            message: format!("Booting agent — target: {}, model: {}", target_directory, model),
+        });
+
+        match sentinel_host::engine::boot(config, context_json).await {
+            Ok(()) => {
+                let _ = app_handle.emit("sentinel://log", LogEntry {
+                    level: "info".into(), target: "sentinel".into(),
+                    message: "Agent completed successfully".into(),
+                });
+            }
+            Err(e) => {
+                let _ = app_handle.emit("sentinel://log", LogEntry {
+                    level: "error".into(), target: "sentinel".into(),
+                    message: format!("Agent error: {}", e),
+                });
+            }
         }
+
         let state = app_handle.state::<Mutex<AgentState>>();
         state.lock().await.is_running = false;
         let _ = app_handle.emit("sentinel://agent-stopped", ());
