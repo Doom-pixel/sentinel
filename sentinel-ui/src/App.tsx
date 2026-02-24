@@ -34,21 +34,20 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="header-brand">
-          <div className="logo-glow" />
-          <h1>SENTINEL</h1>
-          <span className="header-tag">Zero-Trust Agent Runtime</span>
+          <h1>Sentinel</h1>
+          <span className="header-tag">v0.1.0</span>
         </div>
         <div className="header-status">
-          <span className={`status-dot ${isRunning ? "active" : "idle"}`} />
-          <span>{isRunning ? "Agent Running" : "Idle"}</span>
+          <span className={`status-dot ${isRunning ? "active" : ""}`} />
+          <span>{isRunning ? "Running" : "Idle"}</span>
         </div>
       </header>
       <main className="dashboard">
-        <div className="panel-left">
+        <aside className="sidebar">
           <LaunchPanel isRunning={isRunning} setIsRunning={setIsRunning} setLogs={setLogs} />
           <TokenPanel />
-        </div>
-        <div className="panel-right">
+        </aside>
+        <div className="main-area">
           <LogFeed logs={logs} />
         </div>
       </main>

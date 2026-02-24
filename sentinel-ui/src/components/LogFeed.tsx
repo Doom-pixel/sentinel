@@ -12,15 +12,20 @@ export default function LogFeed({ logs }: { logs: LogEntry[] }) {
       case "warn": return "log-warn";
       case "info": return "log-info";
       case "debug": return "log-debug";
-      default: return "log-trace";
+      default: return "";
     }
   };
 
   return (
-    <div className="card log-feed">
-      <h2>Live Log Feed</h2>
+    <>
+      <div className="log-header">
+        <span className="log-header-title">Output</span>
+        <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+          {logs.length > 0 ? `${logs.length} entries` : ""}
+        </span>
+      </div>
       <div className="log-container">
-        {logs.length === 0 && <div className="log-empty">No logs yet. Launch an agent to begin.</div>}
+        {logs.length === 0 && <div className="log-empty">No output yet. Launch an agent to begin.</div>}
         {logs.map((log, i) => (
           <div key={i} className={`log-entry ${levelClass(log.level)}`}>
             <span className="log-level">{log.level.toUpperCase()}</span>
@@ -30,6 +35,6 @@ export default function LogFeed({ logs }: { logs: LogEntry[] }) {
         ))}
         <div ref={endRef} />
       </div>
-    </div>
+    </>
   );
 }
