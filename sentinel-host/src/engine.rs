@@ -1,8 +1,4 @@
 //! # sentinel-host — Wasmtime Engine Setup
-//!
-//! Initializes the Wasmtime engine, configures resource limits,
-//! creates the `Store` with fuel metering, and sets up the `Linker`
-//! with the host-call function implementations using `bindgen!`.
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -22,10 +18,6 @@ wasmtime::component::bindgen!({
     async: true,
 });
 
-/// Per-instance state stored in the Wasmtime `Store`.
-///
-/// This is the "jail" — all guest execution happens within the
-/// constraints defined here.
 pub struct SentinelState {
     pub limits: StoreLimits,
     pub host_calls: Arc<HostCallHandler>,
@@ -36,44 +28,42 @@ pub struct SentinelState {
 }
 
 impl WasiView for SentinelState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
-    }
+    fn table(&mut self) -> &mut ResourceTable { &mut self.table }
+    fn ctx(&mut self) -> &mut WasiCtx { &mut self.wasi }
 }
 
 #[async_trait::async_trait]
 impl sentinel::agent::capabilities::Host for SentinelState {
     async fn request_fs_read(&mut self, path: String, justification: String) -> sentinel::agent::capabilities::CapabilityResult {
-        let res = self.host_calls.request_fs_read(path, justification).await;
-        match res {
+        match self.host_calls.request_fs_read(path, justification).await {
+            Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
+            Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
+        }
+    }
+
+    async fn request_fs_write(&mut self, path: String, justification: String) -> sentinel::agent::capabilities::CapabilityResult {
+        match self.host_calls.request_fs_write(path, justification).await {
             Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
             Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
         }
     }
 
     async fn request_net_outbound(&mut self, url: String, method: String, justification: String) -> sentinel::agent::capabilities::CapabilityResult {
-        let res = self.host_calls.request_net_outbound(url, method, justification).await;
-        match res {
+        match self.host_calls.request_net_outbound(url, method, justification).await {
             Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
             Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
         }
     }
 
     async fn request_ui_observe(&mut self) -> sentinel::agent::capabilities::CapabilityResult {
-        let res = self.host_calls.request_ui_observe().await;
-        match res {
+        match self.host_calls.request_ui_observe().await {
             Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
             Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
         }
     }
 
     async fn request_ui_dispatch(&mut self, event_type: String) -> sentinel::agent::capabilities::CapabilityResult {
-        let res = self.host_calls.request_ui_dispatch(event_type).await;
-        match res {
+        match self.host_calls.request_ui_dispatch(event_type).await {
             Ok(id) => sentinel::agent::capabilities::CapabilityResult::Granted(sentinel::agent::capabilities::CapabilityToken { id, is_valid: true }),
             Err(e) => sentinel::agent::capabilities::CapabilityResult::Denied(e.to_string()),
         }
@@ -84,42 +74,30 @@ impl sentinel::agent::capabilities::Host for SentinelState {
     }
 
     async fn fs_read(&mut self, token_id: String, path: String) -> Result<Vec<u8>, String> {
-        match self.host_calls.fs_read(token_id, path).await {
-            Ok(content) => Ok(content),
-            Err(e) => Err(e.to_string()),
-        }
+        self.host_calls.fs_read(token_id, path).await.map_err(|e| e.to_string())
     }
 
-    async fn net_request(
-        &mut self,
-        token_id: String,
-        url: String,
-        method: String,
-        headers: Vec<(String, String)>,
-        body: Option<Vec<u8>>,
-    ) -> Result<sentinel::agent::capabilities::NetResponse, String> {
+    async fn fs_write(&mut self, token_id: String, path: String, data: Vec<u8>) -> Result<bool, String> {
+        self.host_calls.fs_write(token_id, path, data).await.map_err(|e| e.to_string())
+    }
+
+    async fn fs_list_dir(&mut self, token_id: String, path: String) -> Result<Vec<String>, String> {
+        self.host_calls.fs_list_dir(token_id, path).await.map_err(|e| e.to_string())
+    }
+
+    async fn net_request(&mut self, token_id: String, url: String, method: String, headers: Vec<(String, String)>, body: Option<Vec<u8>>) -> Result<sentinel::agent::capabilities::NetResponse, String> {
         match self.host_calls.net_request(token_id, url, method, headers, body).await {
-            Ok(resp) => Ok(sentinel::agent::capabilities::NetResponse {
-                status: resp.status,
-                headers: resp.headers,
-                body: resp.body,
-            }),
+            Ok(resp) => Ok(sentinel::agent::capabilities::NetResponse { status: resp.status, headers: resp.headers, body: resp.body }),
             Err(e) => Err(e.to_string()),
         }
     }
 
     async fn ui_get_state(&mut self, token_id: String) -> Result<String, String> {
-        match self.host_calls.ui_get_state(token_id).await {
-            Ok(st) => Ok(st),
-            Err(e) => Err(e.to_string()),
-        }
+        self.host_calls.ui_get_state(token_id).await.map_err(|e| e.to_string())
     }
 
     async fn ui_send_event(&mut self, token_id: String, event_type: String, payload: String) -> Result<bool, String> {
-        match self.host_calls.ui_send_event(token_id, event_type, payload).await {
-            Ok(ok) => Ok(ok),
-            Err(e) => Err(e.to_string()),
-        }
+        self.host_calls.ui_send_event(token_id, event_type, payload).await.map_err(|e| e.to_string())
     }
 }
 
@@ -141,8 +119,7 @@ impl sentinel::agent::hitl::Host for SentinelState {
             nonce: [0u8; 32],
         };
 
-        let res = self.hitl.submit_manifest(m).await;
-        match res {
+        match self.hitl.submit_manifest(m).await {
             Ok(crate::hitl::ApprovalStatus::Approved(sig)) => {
                 sentinel::agent::hitl::ApprovalResult::Approved(sentinel::agent::hitl::ManifestApproval {
                     manifest_id: sig.manifest_id,
@@ -150,20 +127,15 @@ impl sentinel::agent::hitl::Host for SentinelState {
                     approver_key: sig.signer_public_key,
                 })
             }
-            Ok(crate::hitl::ApprovalStatus::Rejected(reason)) => {
-                sentinel::agent::hitl::ApprovalResult::Rejected(reason)
-            }
-            Ok(crate::hitl::ApprovalStatus::TimedOut) => {
-                sentinel::agent::hitl::ApprovalResult::TimedOut
-            }
+            Ok(crate::hitl::ApprovalStatus::Rejected(reason)) => sentinel::agent::hitl::ApprovalResult::Rejected(reason),
+            Ok(crate::hitl::ApprovalStatus::TimedOut) => sentinel::agent::hitl::ApprovalResult::TimedOut,
             Err(e) => sentinel::agent::hitl::ApprovalResult::Rejected(e.to_string()),
             _ => sentinel::agent::hitl::ApprovalResult::Rejected("Unknown error".into()),
         }
     }
 
     async fn check_approval(&mut self, manifest_id: String) -> sentinel::agent::hitl::ApprovalResult {
-        let res = self.hitl.check_status(&manifest_id).await;
-        match res {
+        match self.hitl.check_status(&manifest_id).await {
             Some(crate::hitl::ApprovalStatus::Approved(sig)) => {
                 sentinel::agent::hitl::ApprovalResult::Approved(sentinel::agent::hitl::ManifestApproval {
                     manifest_id: sig.manifest_id,
@@ -171,12 +143,8 @@ impl sentinel::agent::hitl::Host for SentinelState {
                     approver_key: sig.signer_public_key,
                 })
             }
-            Some(crate::hitl::ApprovalStatus::Rejected(reason)) => {
-                sentinel::agent::hitl::ApprovalResult::Rejected(reason)
-            }
-            Some(crate::hitl::ApprovalStatus::TimedOut) => {
-                sentinel::agent::hitl::ApprovalResult::TimedOut
-            }
+            Some(crate::hitl::ApprovalStatus::Rejected(reason)) => sentinel::agent::hitl::ApprovalResult::Rejected(reason),
+            Some(crate::hitl::ApprovalStatus::TimedOut) => sentinel::agent::hitl::ApprovalResult::TimedOut,
             _ => sentinel::agent::hitl::ApprovalResult::Rejected("Pending or not found".to_string()),
         }
     }
@@ -203,7 +171,7 @@ impl sentinel::agent::reasoning::Host for SentinelState {
                 "system" => crate::llm::Role::System,
                 "user" => crate::llm::Role::User,
                 "assistant" => crate::llm::Role::Assistant,
-                _ => crate::llm::Role::User, // default fallback
+                _ => crate::llm::Role::User,
             },
             content: m.content,
         }).collect();
@@ -242,23 +210,18 @@ pub fn create_engine(_config: &SentinelConfig) -> Result<Engine> {
     engine_config.cranelift_opt_level(OptLevel::Speed);
     engine_config.wasm_component_model(true);
     engine_config.async_support(true);
-
-    let engine = Engine::new(&engine_config)
-        .context("Failed to create Wasmtime engine")?;
-
-    info!("Wasmtime engine created with async support, fuel metering, and epoch interruption");
+    let engine = Engine::new(&engine_config).context("Failed to create Wasmtime engine")?;
+    info!("Wasmtime engine created");
     Ok(engine)
 }
 
 pub fn create_store(engine: &Engine, config: &SentinelConfig, state: SentinelState) -> Result<Store<SentinelState>> {
     let mut store = Store::new(engine, state);
     store.limiter(|state| &mut state.limits);
-
     if let Some(fuel) = config.engine.fuel_limit {
         store.set_fuel(fuel).context("Failed to set fuel limit")?;
         info!(fuel = fuel, "Fuel limit set");
     }
-
     store.set_epoch_deadline(1);
     Ok(store)
 }
@@ -276,27 +239,17 @@ pub fn build_store_limits(config: &SentinelConfig) -> StoreLimits {
 pub fn load_module(engine: &Engine, config: &SentinelConfig) -> Result<component::Component> {
     let module_path = &config.engine.guest_module_path;
     info!(path = %module_path.display(), "Loading guest component");
-
     let component = component::Component::from_file(engine, module_path)
-        .context(format!(
-            "Failed to load guest component from '{}'",
-            module_path.display()
-        ))?;
-
-    info!(path = %module_path.display(), "Guest component loaded and compiled");
+        .context(format!("Failed to load guest component from '{}'", module_path.display()))?;
+    info!(path = %module_path.display(), "Guest component loaded");
     Ok(component)
 }
 
 pub fn setup_linker(engine: &Engine) -> Result<component::Linker<SentinelState>> {
     let mut linker = component::Linker::new(engine);
-
-    wasmtime_wasi::add_to_linker_async(&mut linker)
-        .context("Failed to add WASI bindings to linker")?;
-
-    SentinelGuest::add_to_linker(&mut linker, |state: &mut SentinelState| state)
-        .context("Failed to add guest bindings to linker")?;
-
-    info!("Linker configured with host-call bindings");
+    wasmtime_wasi::add_to_linker_async(&mut linker).context("Failed to add WASI bindings")?;
+    SentinelGuest::add_to_linker(&mut linker, |state: &mut SentinelState| state).context("Failed to add guest bindings")?;
+    info!("Linker configured");
     Ok(linker)
 }
 
@@ -305,47 +258,27 @@ pub async fn boot(config: SentinelConfig) -> Result<()> {
 
     let engine = create_engine(&config)?;
     let limits = build_store_limits(&config);
-
     let capability_manager = Arc::new(CapabilityManager::new(config.clone()));
     let hitl = Arc::new(HitlBridge::new());
-    let host_calls = Arc::new(HostCallHandler::new(
-        capability_manager.clone(),
-        config.clone(),
-    ));
-    
+    let host_calls = Arc::new(HostCallHandler::new(capability_manager.clone(), config.clone()));
     let llm = Arc::new(crate::llm::create_backend(&config.llm)?);
 
-    let wasi = WasiCtxBuilder::new()
-        .inherit_stdio()      // For testing/printing if we want
-        .inherit_env()        // Standard environment args
-        .build();
+    let wasi = WasiCtxBuilder::new().inherit_stdio().inherit_env().build();
     let table = ResourceTable::new();
 
-    let state = SentinelState {
-        limits,
-        host_calls,
-        hitl,
-        llm,
-        wasi,
-        table,
-    };
+    let state = SentinelState { limits, host_calls, hitl, llm, wasi, table };
     let mut store = create_store(&engine, &config, state)?;
     let linker = setup_linker(&engine)?;
     let component = load_module(&engine, &config)?;
 
     let instance = SentinelGuest::instantiate_async(&mut store, &component, &linker)
-        .await
-        .context("Failed to instantiate guest module")?;
+        .await.context("Failed to instantiate guest module")?;
 
-    info!("Guest module instantiated successfully");
-
-    let initial_context = r#"{"msg": "Please start your task!"}"#;
-    let result: i32 = instance.call_run(&mut store, initial_context)
-        .await
-        .context("Guest execution failed")?;
+    info!("Guest module instantiated — calling run()");
+    let result: i32 = instance.call_run(&mut store, r#"{"msg": "Please start your task!"}"#)
+        .await.context("Guest execution failed")?;
 
     info!("Guest finished with exit code {}", result);
-    info!("SENTINEL boot sequence complete ✓");
-    
+    info!("SENTINEL boot sequence complete");
     Ok(())
 }
