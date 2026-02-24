@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/tauri-v2-schema/refs/heads/main/schema.json",
+  "productName": "SENTINEL Dashboard",
+  "version": "0.1.0",
+  "identifier": "com.sentinel.dashboard",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [{ "title": "SENTINEL — Zero-Trust Agent Dashboard", "width": 1280, "height": 800, "resizable": true, "fullscreen": false, "decorations": true }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": true, "targets": "all", "icon": [] }
+}
