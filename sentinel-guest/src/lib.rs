@@ -48,13 +48,14 @@ impl Guest for Component {
             }
         };
 
-        // Collect .rs files — also recurse into src/ directories of sub-crates
-        let mut rs_files: Vec<String> = Vec::new();
+        // Collect target source files — also recurse into src/ directories
+        let mut target_files: Vec<String> = Vec::new();
+        let exts = [".rs", ".js", ".ts", ".jsx", ".tsx", ".py", ".go", ".c", ".cpp", ".java"];
 
-        // Check top-level for any .rs files
+        // Check top-level for any target files
         for entry in &all_entries {
-            if entry.ends_with(".rs") {
-                rs_files.push(entry.clone());
+            if exts.iter().any(|ext| entry.ends_with(ext)) {
+                target_files.push(entry.clone());
             }
         }
 
@@ -80,8 +81,8 @@ impl Guest for Component {
             match fs_list_dir(&sub_token.id, sub_dir) {
                 Ok(entries) => {
                     for entry in entries {
-                        if entry.ends_with(".rs") {
-                            rs_files.push(format!("{}/{}", sub_dir, entry));
+                        if exts.iter().any(|ext| entry.ends_with(ext)) {
+                            target_files.push(format!("{}/{}", sub_dir, entry));
                         }
                     }
                 }
@@ -91,13 +92,13 @@ impl Guest for Component {
             release_capability(&sub_token.id);
         }
 
-        log(LogLevel::Info, "auditor", &format!("[Phase 1] Found {} Rust source files", rs_files.len()));
-        for f in &rs_files {
+        log(LogLevel::Info, "auditor", &format!("[Phase 1] Found {} source files", target_files.len()));
+        for f in &target_files {
             log(LogLevel::Debug, "auditor", &format!("  → {}", f));
         }
 
-        if rs_files.is_empty() {
-            log(LogLevel::Warn, "auditor", "No .rs files found — nothing to audit.");
+        if target_files.is_empty() {
+            log(LogLevel::Warn, "auditor", "No source files found — nothing to audit.");
             return 0;
         }
 
@@ -125,7 +126,7 @@ Analyze the provided source code and report:
 Format your response as a concise bullet list. If the code is clean, say \"No issues found.\"
 Do NOT explain what the code does — only report problems.", task_prompt);
 
-        for file_path in &rs_files {
+        for file_path in &target_files {
             log(LogLevel::Info, "auditor", &format!("  Auditing: {}", file_path));
 
             // Get a read token for this specific file
@@ -165,7 +166,7 @@ Do NOT explain what the code does — only report problems.", task_prompt);
                 },
                 ChatMessage {
                     role: "user".to_string(),
-                    content: format!("Audit this file (`{}`):\n\n```rust\n{}\n```", file_path, content),
+                    content: format!("Audit this file (`{}`):\n\n```\n{}\n```", file_path, content),
                 },
             ];
 

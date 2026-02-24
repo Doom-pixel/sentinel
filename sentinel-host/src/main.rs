@@ -138,7 +138,7 @@ async fn main() -> Result<()> {
 
     // Boot the engine with default context
     let context_json = r#"{"target_directory": ".", "task_prompt": "Perform the default agent task."}"#.to_string();
-    engine::boot(config, context_json).await?;
+    engine::boot(config, context_json, None).await?;
 
     Ok(())
 }

@@ -1,8 +1,4 @@
 //! Tauri IPC Commands for the SENTINEL Dashboard.
-//!
-//! Bridges the React frontend to the sentinel-host engine via IPC commands.
-
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use sentinel_host::config::SentinelConfig;
 use sentinel_host::hitl::ManifestInfo;
@@ -132,7 +128,19 @@ pub async fn start_agent(
         message: format!("Booting agent — target: {}, model: {}", target_directory, model),
     });
 
-    let result = sentinel_host::engine::boot(config, context_json).await;
+    let (log_tx, mut log_rx) = tokio::sync::mpsc::channel(100);
+    let app_handle_log = app.clone();
+    tauri::async_runtime::spawn(async move {
+        while let Some((level, target, message)) = log_rx.recv().await {
+            let _ = app_handle_log.emit("sentinel://log", LogEntry {
+                level,
+                target,
+                message,
+            });
+        }
+    });
+
+    let result = sentinel_host::engine::boot(config, context_json, Some(log_tx)).await;
 
     match result {
         Ok(()) => {
