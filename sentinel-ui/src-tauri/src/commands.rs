@@ -59,34 +59,14 @@ pub async fn start_agent(
         return Err("Agent is already running".into());
     }
 
-    // Robust approach to find the WASM module dynamically.
-    // The current working directory will be `sentinel-ui` if launched via `npm run tauri dev`,
-    // or the workspace root if launched from standard `cargo run`. We need to find the `target/wasm32-wasip1/` folder.
-    let mut wasm_path = PathBuf::from("target/wasm32-wasip1/debug/sentinel_guest.wasm");
+    // Guaranteed execution: Embed the audited release guest module directly into the Tauri binary.
+    // This removes the need for brittle filesystem crawling and workspace dependency at runtime.
+    const GUEST_WASM: &[u8] = include_bytes!("../../../target/wasm32-wasip1/release/sentinel_guest.wasm");
     
-    // First, try direct root
-    if !wasm_path.exists() {
-        let current_dir = std::env::current_dir().unwrap_or_default();
-        
-        // Search upward until we find the root `Cargo.lock` or `sentinel-guest` dir
-        let mut curr = current_dir.as_path();
-        let mut found_root = false;
-        
-        while curr.parent().is_some() {
-            if curr.join("Cargo.lock").exists() && curr.join("sentinel-guest").exists() {
-                wasm_path = curr.join("target").join("wasm32-wasip1").join("debug").join("sentinel_guest.wasm");
-                found_root = true;
-                break;
-            }
-            curr = curr.parent().unwrap();
-        }
-
-        if !found_root || !wasm_path.exists() {
-            return Err(format!(
-                "WASM module not found. Please compile the guest module first: `cargo build --target wasm32-wasip1` in the sentinel-guest directory. Looked in: {}",
-                wasm_path.display()
-            ));
-        }
+    // Write it out to the OS temporary directory so Wasmtime can memory-map or compile it.
+    let wasm_path = std::env::temp_dir().join("sentinel_guest.wasm");
+    if let Err(e) = std::fs::write(&wasm_path, GUEST_WASM) {
+        return Err(format!("Failed to write embedded guest module to temp storage: {}", e));
     }
 
     // Build config — target_directory is both the read and write scope
