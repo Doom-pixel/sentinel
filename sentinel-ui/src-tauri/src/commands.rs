@@ -57,6 +57,7 @@ pub async fn start_agent(
 
     // Guaranteed execution: Embed the audited release guest module directly into the Tauri binary.
     // This removes the need for brittle filesystem crawling and workspace dependency at runtime.
+    // Force rebuild of Tauri backend to ingest latest compiled WASM component payload
     const GUEST_WASM: &[u8] = include_bytes!("../../../target/wasm32-wasip1/release/sentinel_guest.wasm");
     
     // Write it out to the OS temporary directory so Wasmtime can memory-map or compile it.
