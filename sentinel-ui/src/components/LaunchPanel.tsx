@@ -16,6 +16,7 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
   const [apiKey, setApiKey] = useState("");
   const [targetDirectory, setTargetDirectory] = useState(".");
   const [taskPrompt, setTaskPrompt] = useState("Audit this codebase for security vulnerabilities.");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const selectedProvider = providers.find((p) => p.id === provider);
   const needsKey = selectedProvider?.requires_key ?? false;
@@ -24,17 +25,21 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
 
   const handleLaunch = async () => {
     setLogs([]);
+    setErrorMsg(null);
+    setIsRunning(true);
     try {
       await invoke("start_agent", {
         provider,
         model,
-        apiKey: needsKey ? apiKey : null,
-        targetDirectory,
-        taskPrompt,
+        api_key: needsKey ? apiKey : null,
+        target_directory: targetDirectory,
+        task_prompt: taskPrompt,
       });
-      setIsRunning(true);
     } catch (e) {
       console.error("Launch failed:", e);
+      setErrorMsg(String(e));
+    } finally {
+      setIsRunning(false);
     }
   };
 
@@ -106,6 +111,12 @@ export default function LaunchPanel({ isRunning, setIsRunning, setLogs }: Props)
                   placeholder="sk-..."
                   disabled={isRunning}
               />
+          </div>
+      )}
+
+      {errorMsg && (
+          <div className="form-group" style={{ color: "#ff4444", backgroundColor: "#3a1010", padding: "10px", borderRadius: "4px", fontSize: "0.9em", marginTop: "10px" }}>
+              <b>Error:</b> {errorMsg}
           </div>
       )}
 

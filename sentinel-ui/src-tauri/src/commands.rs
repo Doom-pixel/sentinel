@@ -49,15 +49,28 @@ pub async fn start_agent(
     api_key: Option<String>,
     target_directory: String,
     task_prompt: String,
-) -> Result<AgentResult, String> {
+) -> Result<(), String> {
     let mut agent = state.lock().await;
     if agent.is_running {
-        return Ok(AgentResult { success: false, message: "Agent is already running".into() });
+        return Err("Agent is already running".into());
+    }
+
+    // Check for WASM module path relative to Tauri execution dir
+    let mut wasm_path = PathBuf::from("../../target/wasm32-wasip1/debug/sentinel_guest.wasm");
+    if !wasm_path.exists() {
+        wasm_path = PathBuf::from("../target/wasm32-wasip1/debug/sentinel_guest.wasm");
+        if !wasm_path.exists() {
+            // Check direct root if running from workspace root via some other runner
+            wasm_path = PathBuf::from("target/wasm32-wasip1/debug/sentinel_guest.wasm");
+            if !wasm_path.exists() {
+                return Err("WASM module not found. Please compile the guest module first: `cargo build --target wasm32-wasip1` in the sentinel-guest directory.".into());
+            }
+        }
     }
 
     // Build config — target_directory is both the read and write scope
     let mut config = SentinelConfig::default();
-    config.engine.guest_module_path = PathBuf::from("target/wasm32-wasip1/debug/sentinel_guest.wasm");
+    config.engine.guest_module_path = wasm_path;
     config.filesystem.allowed_read_dirs = vec![PathBuf::from(&target_directory)];
     config.filesystem.allowed_write_dirs = vec![PathBuf::from(&target_directory)];
 
@@ -112,35 +125,34 @@ pub async fn start_agent(
         "task_prompt": task_prompt,
     }).to_string();
 
-    // Spawn agent execution in background
     let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = app_handle.emit("sentinel://log", LogEntry {
-            level: "info".into(), target: "sentinel".into(),
-            message: format!("Booting agent — target: {}, model: {}", target_directory, model),
-        });
-
-        match sentinel_host::engine::boot(config, context_json).await {
-            Ok(()) => {
-                let _ = app_handle.emit("sentinel://log", LogEntry {
-                    level: "info".into(), target: "sentinel".into(),
-                    message: "Agent completed successfully".into(),
-                });
-            }
-            Err(e) => {
-                let _ = app_handle.emit("sentinel://log", LogEntry {
-                    level: "error".into(), target: "sentinel".into(),
-                    message: format!("Agent error: {}", e),
-                });
-            }
-        }
-
-        let state = app_handle.state::<Mutex<AgentState>>();
-        state.lock().await.is_running = false;
-        let _ = app_handle.emit("sentinel://agent-stopped", ());
+    let _ = app_handle.emit("sentinel://log", LogEntry {
+        level: "info".into(), target: "sentinel".into(),
+        message: format!("Booting agent — target: {}, model: {}", target_directory, model),
     });
 
-    Ok(AgentResult { success: true, message: "Agent started".into() })
+    let result = sentinel_host::engine::boot(config, context_json).await;
+
+    match result {
+        Ok(()) => {
+            let _ = app_handle.emit("sentinel://log", LogEntry {
+                level: "info".into(), target: "sentinel".into(),
+                message: "Agent completed successfully".into(),
+            });
+        }
+        Err(ref e) => {
+            let _ = app_handle.emit("sentinel://log", LogEntry {
+                level: "error".into(), target: "sentinel".into(),
+                message: format!("Agent error: {}", e),
+            });
+        }
+    }
+
+    let state_lock = app_handle.state::<Mutex<AgentState>>();
+    state_lock.lock().await.is_running = false;
+    let _ = app_handle.emit("sentinel://agent-stopped", ());
+
+    result.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
