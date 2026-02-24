@@ -1,0 +1,95 @@
+package sentinel:agent;
+
+interface capabilities {
+    record capability-token {
+        id: string,
+        is-valid: bool,
+    }
+
+    variant capability-result {
+        granted(capability-token),
+        denied(string),
+    }
+
+    request-fs-read: func(path: string, justification: string) -> capability-result;
+    request-fs-write: func(path: string, justification: string) -> capability-result;
+    request-network: func(url: string, justification: string) -> capability-result;
+    
+    release-capability: func(token: capability-token);
+}
+
+interface logging {
+    variant log-level {
+        trace,
+        debug,
+        info,
+        warn,
+        error,
+    }
+
+    log: func(level: log-level, target: string, message: string);
+}
+
+interface reasoning {
+    record chat-message {
+        role: string,
+        content: string,
+    }
+
+    record token-usage {
+        prompt-tokens: u32,
+        completion-tokens: u32,
+        total-tokens: u32,
+    }
+
+    record completion-response {
+        content: string,
+        model: string,
+        usage: token-usage,
+        finish-reason: string,
+    }
+
+    complete: func(
+        messages: list<chat-message>,
+        max-tokens: option<u32>,
+        temperature: option<f32>,
+        response-format-json: option<string>
+    ) -> result<completion-response, string>;
+}
+
+interface hitl {
+    use capabilities.{capability-token};
+
+    enum risk-level {
+        low,
+        medium,
+        high,
+        critical,
+    }
+
+    record execution-manifest {
+        id: string,
+        action-description: string,
+        risk: risk-level,
+        parameters-json: string,
+    }
+
+    variant approval-result {
+        approved(string), // signature
+        denied(string),   // reason
+        pending(string),  // manifest id
+    }
+
+    submit-manifest: func(manifest: execution-manifest) -> approval-result;
+    check-approval: func(manifest-id: string) -> approval-result;
+}
+
+world sentinel-guest {
+    import capabilities;
+    import logging;
+    import reasoning;
+    import hitl;
+
+    export run: func();
+    export handle-event: func(event-type: string, data: string);
+}
