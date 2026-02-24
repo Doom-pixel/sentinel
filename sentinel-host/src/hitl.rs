@@ -1,18 +1,17 @@
 //! # sentinel-host — HITL Pre-flight Verification Bridge
 //!
-//! Implements the Human-in-the-Loop protocol. High-risk actions
-//! generate an `ExecutionManifest` that is displayed to the user
-//! and must be cryptographically signed before execution proceeds.
+//! Supports two approval modes:
+//! - **Terminal**: Interactive stdin prompt (default, CLI mode)
+//! - **Channel**: Async oneshot channel (for Tauri/Web UI integration)
 
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey, Signature, Verifier};
 use rand::rngs::OsRng;
 use sentinel_shared::{ExecutionManifest, ManifestSignature, RiskLevel, SentinelError};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Mutex};
 use tracing::{info, warn, error};
 
-/// Approval status for a manifest.
 #[derive(Debug, Clone)]
 pub enum ApprovalStatus {
     Pending,
@@ -21,135 +20,140 @@ pub enum ApprovalStatus {
     TimedOut,
 }
 
-/// The HITL bridge — manages manifest submission, user approval, and signing.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ManifestInfo {
+    pub id: String,
+    pub action_description: String,
+    pub parameters_json: String,
+    pub risk_level: String,
+}
+
+impl From<&ExecutionManifest> for ManifestInfo {
+    fn from(m: &ExecutionManifest) -> Self {
+        Self {
+            id: m.id.clone(),
+            action_description: m.action_description.clone(),
+            parameters_json: serde_json::to_string_pretty(&m.parameters).unwrap_or_default(),
+            risk_level: format!("{:?}", m.risk_level),
+        }
+    }
+}
+
+pub type ApprovalCallback = Box<
+    dyn Fn(ManifestInfo) -> tokio::sync::oneshot::Receiver<bool> + Send + Sync,
+>;
+
 pub struct HitlBridge {
-    /// Ed25519 signing key for the host (generated on startup).
     signing_key: SigningKey,
-    /// Corresponding verification key.
     verifying_key: VerifyingKey,
-    /// Pending and resolved manifests.
     manifests: Arc<RwLock<HashMap<String, (ExecutionManifest, ApprovalStatus)>>>,
+    approval_callback: Arc<Mutex<Option<ApprovalCallback>>>,
 }
 
 impl HitlBridge {
-    /// Create a new HITL bridge with a fresh Ed25519 keypair.
     pub fn new() -> Self {
         let signing_key = SigningKey::generate(&mut OsRng);
         let verifying_key = signing_key.verifying_key();
         info!("HITL bridge initialized with Ed25519 keypair");
         Self {
-            signing_key,
-            verifying_key,
+            signing_key, verifying_key,
             manifests: Arc::new(RwLock::new(HashMap::new())),
+            approval_callback: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Submit a manifest for user approval.
-    pub async fn submit_manifest(
-        &self,
-        manifest: ExecutionManifest,
-    ) -> Result<ApprovalStatus, SentinelError> {
-        let manifest_id = manifest.id.clone();
-        info!(
-            manifest_id = %manifest_id,
-            risk = ?manifest.risk_level,
-            action = %manifest.action_description,
-            "HITL: Manifest submitted for approval"
-        );
+    pub async fn set_approval_callback(&self, callback: ApprovalCallback) {
+        *self.approval_callback.lock().await = Some(callback);
+        info!("HITL: External approval callback set (UI mode)");
+    }
 
-        // Store the manifest as pending
-        {
-            let mut manifests = self.manifests.write().await;
-            manifests.insert(
-                manifest_id.clone(),
-                (manifest.clone(), ApprovalStatus::Pending),
-            );
-        }
+    pub async fn get_pending_manifests(&self) -> Vec<ManifestInfo> {
+        self.manifests.read().await.iter()
+            .filter(|(_, (_, s))| matches!(s, ApprovalStatus::Pending))
+            .map(|(_, (m, _))| ManifestInfo::from(m))
+            .collect()
+    }
 
-        // Display manifest to user and collect decision
-        let approved = self.prompt_user(&manifest).await;
+    pub async fn resolve_manifest(&self, manifest_id: &str, approved: bool) -> Result<ApprovalStatus, SentinelError> {
+        let manifest = self.manifests.read().await.get(manifest_id).map(|(m, _)| m.clone());
+        let manifest = manifest.ok_or_else(|| SentinelError::GuestError { message: format!("Manifest not found: {}", manifest_id) })?;
 
         if approved {
             let signature = self.sign_manifest(&manifest)?;
             let status = ApprovalStatus::Approved(signature);
-            self.manifests
-                .write()
-                .await
-                .get_mut(&manifest_id)
-                .map(|(_, s)| *s = status.clone());
+            self.manifests.write().await.get_mut(manifest_id).map(|(_, s)| *s = status.clone());
+            info!(manifest_id = %manifest_id, "HITL: Manifest APPROVED (external)");
+            Ok(status)
+        } else {
+            let status = ApprovalStatus::Rejected("User rejected via UI".into());
+            self.manifests.write().await.get_mut(manifest_id).map(|(_, s)| *s = status.clone());
+            warn!(manifest_id = %manifest_id, "HITL: Manifest REJECTED (external)");
+            Ok(status)
+        }
+    }
+
+    pub async fn submit_manifest(&self, manifest: ExecutionManifest) -> Result<ApprovalStatus, SentinelError> {
+        let manifest_id = manifest.id.clone();
+        info!(manifest_id = %manifest_id, risk = ?manifest.risk_level, action = %manifest.action_description, "HITL: Manifest submitted");
+
+        self.manifests.write().await.insert(manifest_id.clone(), (manifest.clone(), ApprovalStatus::Pending));
+
+        let approved = {
+            let cb = self.approval_callback.lock().await;
+            if let Some(ref callback) = *cb {
+                let info = ManifestInfo::from(&manifest);
+                let rx = callback(info);
+                drop(cb);
+                match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(_)) => false,
+                    Err(_) => {
+                        let status = ApprovalStatus::TimedOut;
+                        self.manifests.write().await.get_mut(&manifest_id).map(|(_, s)| *s = status.clone());
+                        return Ok(status);
+                    }
+                }
+            } else {
+                drop(cb);
+                self.prompt_terminal(&manifest).await
+            }
+        };
+
+        if approved {
+            let signature = self.sign_manifest(&manifest)?;
+            let status = ApprovalStatus::Approved(signature);
+            self.manifests.write().await.get_mut(&manifest_id).map(|(_, s)| *s = status.clone());
             info!(manifest_id = %manifest_id, "HITL: Manifest APPROVED");
             Ok(status)
         } else {
-            let reason = "User rejected the action".to_string();
-            let status = ApprovalStatus::Rejected(reason.clone());
-            self.manifests
-                .write()
-                .await
-                .get_mut(&manifest_id)
-                .map(|(_, s)| *s = status.clone());
+            let status = ApprovalStatus::Rejected("User rejected the action".into());
+            self.manifests.write().await.get_mut(&manifest_id).map(|(_, s)| *s = status.clone());
             warn!(manifest_id = %manifest_id, "HITL: Manifest REJECTED");
             Ok(status)
         }
     }
 
-    /// Check the approval status of a previously submitted manifest.
     pub async fn check_status(&self, manifest_id: &str) -> Option<ApprovalStatus> {
-        self.manifests
-            .read()
-            .await
-            .get(manifest_id)
-            .map(|(_, status)| status.clone())
+        self.manifests.read().await.get(manifest_id).map(|(_, s)| s.clone())
     }
 
-    /// Verify that a signature is valid for a given manifest.
-    pub fn verify_signature(
-        &self,
-        manifest: &ExecutionManifest,
-        signature: &ManifestSignature,
-    ) -> Result<bool, SentinelError> {
+    pub fn verify_signature(&self, manifest: &ExecutionManifest, signature: &ManifestSignature) -> Result<bool, SentinelError> {
         let manifest_bytes = serde_json::to_vec(manifest)?;
-
-        let sig_bytes: [u8; 64] = signature
-            .signature_bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| SentinelError::InvalidSignature)?;
-
+        let sig_bytes: [u8; 64] = signature.signature_bytes.as_slice().try_into().map_err(|_| SentinelError::InvalidSignature)?;
         let sig = Signature::from_bytes(&sig_bytes);
-
-        let key_bytes: [u8; 32] = signature
-            .signer_public_key
-            .as_slice()
-            .try_into()
-            .map_err(|_| SentinelError::InvalidSignature)?;
-
-        let verifying_key = VerifyingKey::from_bytes(&key_bytes)
-            .map_err(|_| SentinelError::InvalidSignature)?;
-
-        match verifying_key.verify(&manifest_bytes, &sig) {
+        let key_bytes: [u8; 32] = signature.signer_public_key.as_slice().try_into().map_err(|_| SentinelError::InvalidSignature)?;
+        let vk = VerifyingKey::from_bytes(&key_bytes).map_err(|_| SentinelError::InvalidSignature)?;
+        match vk.verify(&manifest_bytes, &sig) {
             Ok(()) => Ok(true),
-            Err(_) => {
-                error!(manifest_id = %manifest.id, "HITL: Signature verification FAILED");
-                Ok(false)
-            }
+            Err(_) => { error!(manifest_id = %manifest.id, "HITL: Signature verification FAILED"); Ok(false) }
         }
     }
 
-    /// Get the host's public verification key.
-    pub fn public_key(&self) -> Vec<u8> {
-        self.verifying_key.to_bytes().to_vec()
-    }
+    pub fn public_key(&self) -> Vec<u8> { self.verifying_key.to_bytes().to_vec() }
 
-    // ── Internal helpers ────────────────────────────────────────────────
-
-    /// Sign a manifest with the host's Ed25519 key.
-    fn sign_manifest(
-        &self,
-        manifest: &ExecutionManifest,
-    ) -> Result<ManifestSignature, SentinelError> {
+    fn sign_manifest(&self, manifest: &ExecutionManifest) -> Result<ManifestSignature, SentinelError> {
         let manifest_bytes = serde_json::to_vec(manifest)?;
         let signature = self.signing_key.sign(&manifest_bytes);
-
         Ok(ManifestSignature {
             manifest_id: manifest.id.clone(),
             signature_bytes: signature.to_bytes().to_vec(),
@@ -157,35 +161,19 @@ impl HitlBridge {
         })
     }
 
-    /// Display a manifest to the user and prompt for approval.
-    async fn prompt_user(&self, manifest: &ExecutionManifest) -> bool {
-        let risk_indicator = match manifest.risk_level {
-            RiskLevel::Low => "🟢 LOW",
-            RiskLevel::Medium => "🟡 MEDIUM",
-            RiskLevel::High => "🟠 HIGH",
-            RiskLevel::Critical => "🔴 CRITICAL",
-        };
-
-        println!();
-        println!("╔══════════════════════════════════════════════════════════╗");
-        println!("║          SENTINEL — Pre-flight Verification             ║");
-        println!("╠══════════════════════════════════════════════════════════╣");
-        println!("║ Manifest ID: {:<43}║", manifest.id);
-        println!("║ Risk Level:  {:<43}║", risk_indicator);
-        println!("╠══════════════════════════════════════════════════════════╣");
-        println!("║ Action:                                                 ║");
-        for line in textwrap_simple(&manifest.action_description, 54) {
-            println!("║   {:<55}║", line);
-        }
-        println!("╠══════════════════════════════════════════════════════════╣");
-        println!("║ Parameters:                                             ║");
-        let params_str = serde_json::to_string_pretty(&manifest.parameters)
-            .unwrap_or_else(|_| "{}".to_string());
-        for line in params_str.lines().take(10) {
-            println!("║   {:<55}║", truncate_str(line, 55));
-        }
-        println!("╚══════════════════════════════════════════════════════════╝");
-        println!();
+    async fn prompt_terminal(&self, manifest: &ExecutionManifest) -> bool {
+        let risk = format!("{:?}", manifest.risk_level);
+        println!("\n========================================================");
+        println!("       SENTINEL \u2014 Pre-flight Verification");
+        println!("========================================================");
+        println!(" Manifest ID: {}", manifest.id);
+        println!(" Risk Level:  {}", risk);
+        println!("--------------------------------------------------------");
+        println!(" Action: {}", manifest.action_description);
+        println!("--------------------------------------------------------");
+        let params_str = serde_json::to_string_pretty(&manifest.parameters).unwrap_or_default();
+        for line in params_str.lines().take(10) { println!("   {}", line); }
+        println!("========================================================\n");
 
         use std::io::{self, Write};
         print!("  Approve this action? [y/N]: ");
@@ -193,35 +181,5 @@ impl HitlBridge {
         let mut input = String::new();
         io::stdin().read_line(&mut input).unwrap();
         input.trim().eq_ignore_ascii_case("y")
-    }
-}
-
-fn textwrap_simple(text: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current_line = String::new();
-    for word in text.split_whitespace() {
-        if current_line.len() + word.len() + 1 > width {
-            lines.push(current_line.clone());
-            current_line.clear();
-        }
-        if !current_line.is_empty() {
-            current_line.push(' ');
-        }
-        current_line.push_str(word);
-    }
-    if !current_line.is_empty() {
-        lines.push(current_line);
-    }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    lines
-}
-
-fn truncate_str(s: &str, max_len: usize) -> &str {
-    if s.len() <= max_len {
-        s
-    } else {
-        &s[..max_len]
     }
 }
