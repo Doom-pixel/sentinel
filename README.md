@@ -19,16 +19,28 @@ SENTINEL is a high-security agentic framework designed for autonomous operations
 ## 🏗️ Architecture
 
 SENTINEL is built as a modular system in Rust, leveraging WebAssembly (Wasm) for safe guest execution.
-
-```mermaid
-graph TD
-    A[SENTINEL Host] -->|Capability Gating| B[Capability Manager]
-    A -->|HITL Bridge| C[Tauri UI]
-    A -->|Execution| D[SENTINEL Guest (Wasm)]
-    D -->|Host Calls| A
-    B -->|Validation| E[Filesystem/Network]
-    A -->|Alerts| F[Notifications Service]
-    F -->|Webhook| G[Discord/Slack/Telegram]
+```
+┌───────────────────────────────────────────────────────────┐
+│                    SENTINEL ECOSYSTEM                     │
+└───────────────────────────────────────────────────────────┘
+            │                                 │
+            ▼                                 ▼
+   ┌───────────────────┐             ┌───────────────────┐
+   │     TAURI UI      │             │  NOTIFICATIONS    │
+   │ (Pilotage React)  │             │ (Discord/Slack)   │
+   └─────────┬─────────┘             └─────────▲─────────┘
+             │                                 │
+             ▼          Host Calls             │
+   ┌───────────────────┐ <────────── ┌───────────────────┐
+   │   SENTINEL HOST   │             │  SENTINEL GUEST   │
+   │  (Moteur Rust)    │ ──────────> │  (Sandbox Wasm)   │
+   └─────────┬─────────┘  Execution  └───────────────────┘
+             │
+             ▼
+   ┌───────────────────┐
+   │ CAPABILITY MGR    │
+   │ (Tokens & Jetons) │
+   └───────────────────┘
 ```
 
 ### Components:
@@ -65,3 +77,4 @@ npm run tauri dev
 ## ⚖️ License
 
 Project is under the MIT License. See `LICENSE` for more details.
+
