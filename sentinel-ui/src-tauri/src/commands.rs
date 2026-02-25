@@ -58,6 +58,9 @@ pub async fn start_agent(
     // Guaranteed execution: Embed the audited release guest module directly into the Tauri binary.
     // This removes the need for brittle filesystem crawling and workspace dependency at runtime.
     // Force rebuild of Tauri backend to ingest latest compiled WASM component payload
+    // Re-triggering the watcher to ingest the new Chain of Thought payload
+    // Re-triggering the watcher to ingest the proper dynamic path targeting payload
+    // Re-triggering the watcher to ingest the cleaned dynamic paths
     const GUEST_WASM: &[u8] = include_bytes!("../../../target/wasm32-wasip1/release/sentinel_guest.wasm");
     
     // Write it out to the OS temporary directory so Wasmtime can memory-map or compile it.
@@ -105,11 +108,8 @@ pub async fn start_agent(
     hitl.set_approval_callback(Box::new(move |info: ManifestInfo| {
         let _ = app_handle.emit("sentinel://hitl-request", &info);
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let app_handle2 = app_handle.clone();
-        tauri::async_runtime::spawn(async move {
-            let state = app_handle2.state::<Mutex<HitlPendingSenders>>();
-            state.lock().await.pending.insert(info.id, tx);
-        });
+        let state = app_handle.state::<HitlPendingSenders>();
+        state.pending.lock().unwrap().insert(info.id, tx);
         rx
     })).await;
 
@@ -141,7 +141,7 @@ pub async fn start_agent(
         }
     });
 
-    let result = sentinel_host::engine::boot(config, context_json, Some(log_tx)).await;
+    let result = sentinel_host::engine::boot(config, context_json, Some(log_tx), cap_mgr.clone(), hitl.clone()).await;
 
     match result {
         Ok(()) => {
@@ -182,9 +182,9 @@ pub async fn get_pending_manifests(state: State<'_, Mutex<AgentState>>) -> Resul
 
 #[tauri::command]
 pub async fn handle_hitl_approval(app: AppHandle, manifest_id: String, approved: bool) -> Result<AgentResult, String> {
-    let state = app.state::<Mutex<HitlPendingSenders>>();
-    let mut senders = state.lock().await;
-    if let Some(tx) = senders.pending.remove(&manifest_id) {
+    let state = app.state::<HitlPendingSenders>();
+    let tx_opt = state.pending.lock().unwrap().remove(&manifest_id);
+    if let Some(tx) = tx_opt {
         let _ = tx.send(approved);
         Ok(AgentResult { success: true, message: format!("Manifest {} {}", manifest_id, if approved { "approved" } else { "rejected" }) })
     } else {
@@ -192,8 +192,8 @@ pub async fn handle_hitl_approval(app: AppHandle, manifest_id: String, approved:
     }
 }
 
-pub struct HitlPendingSenders { pub pending: std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>> }
-impl Default for HitlPendingSenders { fn default() -> Self { Self { pending: std::collections::HashMap::new() } } }
+pub struct HitlPendingSenders { pub pending: std::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>> }
+impl Default for HitlPendingSenders { fn default() -> Self { Self { pending: std::sync::Mutex::new(std::collections::HashMap::new()) } } }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LogEntry { pub level: String, pub target: String, pub message: String }

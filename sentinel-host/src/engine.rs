@@ -242,6 +242,11 @@ impl sentinel::agent::reasoning::Host for SentinelState {
             response_format: response_format_json.and_then(|s| serde_json::from_str(&s).ok()),
         };
 
+        if let Some(tx) = &self.log_sender {
+            let provider = self.llm.provider_name();
+            let _ = tx.try_send(("info".to_string(), "system".to_string(), format!("THOUGHT: Waiting for LLM response from {}...", provider)));
+        }
+
         match self.llm.complete(req).await {
             Ok(resp) => Ok(sentinel::agent::reasoning::CompletionResponse {
                 content: resp.content,
@@ -327,14 +332,18 @@ pub fn setup_linker(engine: &Engine) -> Result<component::Linker<SentinelState>>
     Ok(linker)
 }
 
-pub async fn boot(config: SentinelConfig, context_json: String, log_sender: Option<tokio::sync::mpsc::Sender<(String, String, String)>>) -> Result<()> {
+pub async fn boot(
+    config: SentinelConfig,
+    context_json: String,
+    log_sender: Option<tokio::sync::mpsc::Sender<(String, String, String)>>,
+    capability_manager: Arc<CapabilityManager>,
+    hitl: Arc<HitlBridge>
+) -> Result<()> {
     info!("SENTINEL boot sequence starting");
 
     let engine = create_engine(&config)?;
     let limits = build_store_limits(&config);
 
-    let capability_manager = Arc::new(CapabilityManager::new(config.clone()));
-    let hitl = Arc::new(HitlBridge::new());
     let host_calls = Arc::new(HostCallHandler::new(
         capability_manager.clone(),
         config.clone(),
