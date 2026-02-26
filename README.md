@@ -76,5 +76,7 @@ npm run tauri dev
 
 ## ⚖️ License
 
-Project is under the MIT License. See `LICENSE` for more details.
-
+This project is licensed under the **SENTINEL Business Source License**.
+- **Free** for individuals, researchers, and non-commercial use.
+- **Commercial License required** for companies and production environments.
+Contact me for professional licensing inquiries.
