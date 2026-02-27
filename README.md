@@ -1,76 +1,146 @@
-# 🔒 SENTINEL
+# 🛡️ SENTINEL
 
-**Autonomous. Capability-Gated. Auditable.**
+**Your Personal AI Agent. Docker-Isolated. Fully Autonomous.**
 
-SENTINEL is a high-security agentic framework designed for autonomous operations with a focus on trust, safety, and transparency. It provides a robust infrastructure for AI agents to operate within strict, verifiable boundaries, ensuring that every action is authorized, audited, and safe.
+SENTINEL is a personal AI agent that runs inside **Docker containers** with full OS-level isolation. Ask it anything — browse the web, analyze code, send emails, run shell commands, research topics — all from a beautiful desktop app. The agent has its own browser, file system, and tools, completely isolated from your system.
+
+[![Join Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/k967Q5q6xZ)
 
 ---
 
 ## 🚀 Key Features
 
-- **🛡️ Capability-Gated Security**: Fine-grained control over system resources (filesystem, network, UI) using cryptographic tokens and scope validation.
-- **🤝 Human-In-The-Loop (HITL)**: Seamless approval workflows for critical or high-risk actions, ensuring human oversight where it matters most.
-- **📢 Multi-Channel Notifications**: Real-time alerts via Discord, Slack, and Telegram using HTTP webhooks for immediate situational awareness.
-- **📝 Automated Security Auditing**: Built-in agents that autonomously audit the codebase and runtime operations, generating detailed security reports.
-- **💻 Cross-Platform UI**: A modern, premium Tauri-powered desktop interface for monitoring and managing agent activities.
+- **🐳 Docker Isolation**: Each agent runs in its own container — full OS-level sandboxing, zero risk to your system
+- **🌐 Web Browsing**: Agent has Chromium built-in, can browse websites, fill forms, search Google — with live view in your chat
+- **🖥️ Live View**: Watch the agent's screen in real-time via noVNC, with replay timebar for reviewing past actions
+- **🧠 Any LLM**: Ollama (local), OpenAI GPT-4.1, Anthropic Claude 4, Google Gemini 2.5, Deepseek, Grok 3 — or type any custom model
+- **💬 Chat Interface**: Full conversation with the agent — send follow-up messages, get markdown-formatted responses
+- **🎛️ Autonomy Levels**: Full, Read & Report, Ask Before Writing, or Read Only
+- **📝 Auto Reports**: Summary in chat + detailed report saved to your project folder
+- **📢 Notifications**: Discord, Slack, and Telegram webhooks
+- **🔄 Auto-Update**: Notified when a new version is available
+- **💾 Persistent State**: Chat history, settings, and preferences saved across sessions
+- **📁 Optional Workspace**: Agent can work with or without a project folder
+- **💻 Apple-like UI**: Minimalist dark design with glassmorphism, sidebar with right-click rename/delete
 
 ---
 
 ## 🏗️ Architecture
 
-SENTINEL is built as a modular system in Rust, leveraging WebAssembly (Wasm) for safe guest execution.
 ```
-┌───────────────────────────────────────────────────────────┐
-│                    SENTINEL ECOSYSTEM                     │
-└───────────────────────────────────────────────────────────┘
-            │                                 │
-            ▼                                 ▼
-   ┌───────────────────┐             ┌───────────────────┐
-   │     TAURI UI      │             │  NOTIFICATIONS    │
-   │ (Pilotage React)  │             │ (Discord/Slack)   │
-   └─────────┬─────────┘             └─────────▲─────────┘
-             │                                 │
-             ▼          Host Calls             │
-   ┌───────────────────┐ <────────── ┌───────────────────┐
-   │   SENTINEL HOST   │             │  SENTINEL GUEST   │
-   │  (Moteur Rust)    │ ──────────> │  (Sandbox Wasm)   │
-   └─────────┬─────────┘  Execution  └───────────────────┘
-             │
-             ▼
-   ┌───────────────────┐
-   │ CAPABILITY MGR    │
-   │ (Tokens & Jetons) │
-   └───────────────────┘
+┌──────────────────────────────┐
+│   Tauri Desktop App          │
+│ ┌──────────┐ ┌─────────────┐ │
+│ │ React UI │ │ Rust Backend │◄── manages containers via bollard
+│ └──────────┘ └──────┬──────┘ │
+└─────────────────────┼────────┘
+                      │ Docker API
+              ┌───────▼───────┐
+              │ Docker Engine │
+              │  ┌──────────┐ │
+              │  │ Agent VM │ │  ← Chromium + noVNC + ffmpeg
+              │  │          │ │  ← sentinel-agent (tool-use loop)
+              │  │          │ │  ← /workspace + /downloads
+              │  └──────────┘ │
+              └───────────────┘
 ```
 
-### Components:
-- **`sentinel-host`**: The core engine that manages execution, capabilities, and HITL routing.
-- **`sentinel-guest`**: High-level agent logic designed to run within the host's sandbox.
-- **`sentinel-guest-api`**: The interface definition for guest-host communication.
-- **`sentinel-shared`**: Common types and utilities used across the project.
-- **`sentinel-ui`**: The Tauri + React frontend application.
+### Agent Container Stack
+
+| Component | Purpose |
+|-----------|---------|
+| **sentinel-agent** | Rust binary with tool-use loop (up to 15 iterations) |
+| **Chromium** | Full browser for web tasks |
+| **noVNC** | Streams agent's screen to your desktop app |
+| **ffmpeg** | Records screen for replay |
+| **openbox** | Lightweight window manager |
+| **/workspace** | Mounted project folder (optional) |
+| **/downloads** | Isolated download folder (not mounted to host) |
+
+### Agent Tools
+
+The agent has 6 built-in tools it can use autonomously:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read any file in the workspace |
+| `write_file` | Write/create files |
+| `list_files` | Browse directory contents |
+| `shell` | Run shell commands inside the container |
+| `browse` | Open URLs in Chromium (visible in live view) |
+| `search_web` | Search Google and view results |
+
+---
+
+## 🐳 How Isolation Works
+
+```
+Your PC                              Docker Container
+──────                               ────────────────
+C:\Users\you\my-app\  ◄═ bind mount ═►  /workspace/
+                                         /downloads/  ← isolated, not on host
+Everything else:       ❌ INVISIBLE      Agent has its own:
+  ~/.ssh/              ❌ Not mounted      • Browser
+  C:\Windows\          ❌ Not mounted      • File system
+  Other projects/      ❌ Not mounted      • Network (for LLM + web)
+```
+
+| Layer | Protection |
+|-------|-----------|
+| **Scope Isolation** | Agent only sees the directory you select (or nothing) |
+| **Process Isolation** | Runs inside Linux, can't access your Windows processes |
+| **Download Isolation** | Downloads stay in `/downloads` inside the container |
+| **Memory Limits** | Docker enforces caps (configurable, default 512 MB) |
+| **Autonomy Levels** | From full access to read-only mode |
+| **Disposability** | Destroy the container instantly — zero cleanup |
 
 ---
 
 ## 🛠️ Getting Started
 
 ### Prerequisites
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
-- [Node.js & npm](https://nodejs.org/) (for the UI)
-- [Tauri Dependencies](https://tauri.app/v1/guides/getting-started/prerequisites)
 
-### Backend (Host)
+- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** — required for agent containers
+- **[Rust](https://www.rust-lang.org/tools/install)** — latest stable (for building from source)
+- **[Node.js & npm](https://nodejs.org/)** — for the UI
+
+### Quick Start
+
 ```bash
-cd sentinel-host
-cargo build --release
+# 1. Build the agent Docker image
+docker build -t sentinel-agent:latest -f docker/Dockerfile .
+
+# 2. Install UI dependencies
+cd sentinel-ui && npm install
+
+# 3. Launch in dev mode
+npx tauri dev
 ```
 
-### Frontend (UI)
+### Build Installer (.exe)
+
 ```bash
 cd sentinel-ui
-npm install
-npm run tauri dev
+npx tauri build
+# Output: src-tauri/target/release/bundle/nsis/Sentinel_0.2.0_x64-setup.exe
 ```
+
+---
+
+## 🔑 LLM Providers
+
+| Provider | Models | Local? | API Key? |
+|----------|--------|--------|----------|
+| **Ollama** | llama3.3, qwen2.5, mistral, deepseek-r1 | ✅ | No |
+| **OpenAI** | gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, o3-mini | ❌ | Yes |
+| **Anthropic** | claude-sonnet-4, claude-3.5-haiku, claude-3.5-sonnet | ❌ | Yes |
+| **Deepseek** | deepseek-chat, deepseek-reasoner | ❌ | Yes |
+| **xAI** | grok-3, grok-3-mini | ❌ | Yes |
+| **Google** | gemini-2.5-flash, gemini-2.5-pro | ❌ | Yes |
+
+> **Custom models**: Click "Custom ↗" in the model selector to type any model name.
+
+For **Ollama**, install from [ollama.com](https://ollama.com) and pull a model: `ollama pull llama3.3`
 
 ---
 
@@ -79,4 +149,9 @@ npm run tauri dev
 This project is licensed under the **SENTINEL Business Source License**.
 - **Free** for individuals, researchers, and non-commercial use.
 - **Commercial License required** for companies and production environments.
-Contact me for professional licensing inquiries.
+
+Contact me on Discord for professional licensing inquiries.
+
+## 💬 Community
+
+**Discord:** https://discord.gg/k967Q5q6xZ
