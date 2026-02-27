@@ -2,7 +2,7 @@
 
 **Your Personal AI Agent. Docker-Isolated. Fully Autonomous.**
 
-SENTINEL is a personal AI agent that runs inside **Docker containers** with full OS-level isolation. Ask it anything — browse the web, analyze code, send emails, run shell commands, research topics — all from a beautiful desktop app. The agent has its own browser, file system, and tools, completely isolated from your system.
+SENTINEL is a personal AI agent that runs inside **Docker containers** with full OS-level isolation. Ask it anything — browse the web, analyze code, send emails, run shell commands, research topics — all from a beautiful desktop app. The agent has its own browser, file system, and tools, completely isolated from your system. Currently, Sentinel is better in cybersecurity stuff like analyzing a codebase for security vulnerabilities for example. A lot of bugs can show up, please, report them as soon as possibile so we can fix them as fast as we can.
 
 [![Join Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/k967Q5q6xZ)
 
@@ -13,7 +13,7 @@ SENTINEL is a personal AI agent that runs inside **Docker containers** with full
 - **🐳 Docker Isolation**: Each agent runs in its own container — full OS-level sandboxing, zero risk to your system
 - **🌐 Web Browsing**: Agent has Chromium built-in, can browse websites, fill forms, search Google — with live view in your chat
 - **🖥️ Live View**: Watch the agent's screen in real-time via noVNC, with replay timebar for reviewing past actions
-- **🧠 Any LLM**: Ollama (local), OpenAI GPT-4.1, Anthropic Claude 4, Google Gemini 2.5, Deepseek, Grok 3 — or type any custom model
+- **🧠 Any LLM**: Ollama (local), OpenAI GPT-5.2, Anthropic Claude sonnet 4.6, Anthropic Claude opus 4.6, Google Gemini 3.1, Google Gemini 3 flash, Deepseek, Grok 4.20 — or type any custom model
 - **💬 Chat Interface**: Full conversation with the agent — send follow-up messages, get markdown-formatted responses
 - **🎛️ Autonomy Levels**: Full, Read & Report, Ask Before Writing, or Read Only
 - **📝 Auto Reports**: Summary in chat + detailed report saved to your project folder
@@ -21,7 +21,6 @@ SENTINEL is a personal AI agent that runs inside **Docker containers** with full
 - **🔄 Auto-Update**: Notified when a new version is available
 - **💾 Persistent State**: Chat history, settings, and preferences saved across sessions
 - **📁 Optional Workspace**: Agent can work with or without a project folder
-- **💻 Apple-like UI**: Minimalist dark design with glassmorphism, sidebar with right-click rename/delete
 
 ---
 
@@ -140,7 +139,7 @@ npx tauri build
 
 > **Custom models**: Click "Custom ↗" in the model selector to type any model name.
 
-For **Ollama**, install from [ollama.com](https://ollama.com) and pull a model: `ollama pull llama3.3`
+For **Ollama**, install from [ollama.com](https://ollama.com) and pull a model: `ollama pull [model's name]`
 
 ---
 
