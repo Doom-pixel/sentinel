@@ -148,7 +148,7 @@ For **Ollama**, install from [ollama.com](https://ollama.com) and pull a model: 
 ## ⚖️ License
 
 This project is licensed under the **MIT License**.
-See the `LICENSE`file for more precision.
+See the [LICENSE](https://github.com/Doom-pixel/sentinel/blob/main/LICENSE) file for more precision.
 
 ## 💬 Community
 
