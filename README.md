@@ -6,6 +6,8 @@ SENTINEL is a personal AI agent that runs inside **Docker containers** with full
 
 [![Join Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/k967Q5q6xZ)
 
+<img width="960" height="564" alt="image" src="https://github.com/user-attachments/assets/2390f92b-1e83-4262-9ce9-d5105bdb59f8" />
+
 ---
 
 ## 🚀 Key Features
