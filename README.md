@@ -147,11 +147,8 @@ For **Ollama**, install from [ollama.com](https://ollama.com) and pull a model: 
 
 ## ⚖️ License
 
-This project is licensed under the **SENTINEL Business Source License**.
-- **Free** for individuals, researchers, and non-commercial use.
-- **Commercial License required** for companies and production environments.
-
-Contact me on Discord for professional licensing inquiries.
+This project is licensed under the **MIT License**.
+See the `LICENSE`file for more precision.
 
 ## 💬 Community
 
