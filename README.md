@@ -1,99 +1,54 @@
-# 🛡️ SENTINEL
+# 🛡️ SENTINEL v1.0.0 (Stargenesis)
 
-**Your Personal AI Agent. Docker-Isolated. Fully Autonomous.**
+**Zero-Trust Agentic Security Orchestration Engine. CLI-Powered.**
 
-SENTINEL is a personal AI agent that runs inside **Docker containers** with full OS-level isolation. Ask it anything — browse the web, analyze code, send emails, run shell commands, research topics — all from a beautiful desktop app. The agent has its own browser, file system, and tools, completely isolated from your system. Currently, Sentinel is better in cybersecurity stuff like analyzing a codebase for security vulnerabilities for example. A lot of bugs can show up, please, report them as soon as possibile so we can fix them as fast as we can.
+SENTINEL is an autonomous AI agent running as a powerful, lightweight Python CLI. It bridges the gap between dynamic web auditing and deep-dive **local static codebase analysis**. By combining advanced Python-native security logic with LLM reasoning, Sentinel delivers comprehensive, automated security audits directly from your terminal.
 
 [![Join Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/k967Q5q6xZ)
 
-<img width="960" height="564" alt="image" src="https://github.com/user-attachments/assets/2390f92b-1e83-4262-9ce9-d5105bdb59f8" />
+---
+
+## ⚠️ Disclaimer
+
+> [!WARNING]
+> **Legal Notice & Non-Responsibility**
+> Sentinel is designed strictly for authorized security auditing, defensive analysis, and educational purposes. The creators and contributors of Sentinel are **NOT** responsible for any damages, legal issues, or consequences caused by the misuse of this tool. You may only use Sentinel on networks, systems, or codebases that you own or have explicit, documented permission to audit. Any illegal or unauthorized use of this tool is strictly prohibited.
 
 ---
 
 ## 🚀 Key Features
 
-- **🐳 Docker Isolation**: Each agent runs in its own container — full OS-level sandboxing, zero risk to your system
-- **🌐 Web Browsing**: Agent has Chromium built-in, can browse websites, fill forms, search Google — with live view in your chat
-- **🖥️ Live View**: Watch the agent's screen in real-time via noVNC, with replay timebar for reviewing past actions
-- **🧠 Any LLM**: Ollama (local), OpenAI GPT-5.2, Anthropic Claude sonnet 4.6, Anthropic Claude opus 4.6, Google Gemini 3.1, Google Gemini 3 flash, Deepseek, Grok 4.20 — or type any custom model
-- **💬 Chat Interface**: Full conversation with the agent — send follow-up messages, get markdown-formatted responses
-- **🎛️ Autonomy Levels**: Full, Read & Report, Ask Before Writing, or Read Only
-- **📝 Auto Reports**: Summary in chat + detailed report saved to your project folder
-- **📢 Notifications**: Discord, Slack, and Telegram webhooks
-- **🔄 Auto-Update**: Notified when a new version is available
-- **💾 Persistent State**: Chat history, settings, and preferences saved across sessions
-- **📁 Optional Workspace**: Agent can work with or without a project folder
+- **🌐 Web Audit Engine (`-audit`)**: Automatically orchestrates dynamic discovery, payload inspection, and vulnerability scanning against target URLs natively using Python's requests engine.
+- **📂 Static Code Sandbox (`-analyze`)**: Analyzes local directories natively for security vulnerabilities and design flaws. *This strictly sandboxes the AI agent to the local folder you provide, ensuring memory limits and path safety.*
+- **🧠 Agnostic AI Protocol**: Natively integrates with Ollama, Google Gemini, Anthropic Claude, OpenAI, Grok (xAI), and Groq.
+- **🎛️ Interactive Multi-Model Mapping**: Dynamically probe local Ollama instances and easily select custom cloud models for active providers via an intuitive CLI flow.
+- **📝 Automated Reporting**: Synthesizes complex scan data into professional, actionable Markdown reports (`report.md`).
+- **🔐 Absolute Zero-Trust Security**: Validates all Python dependencies via live SHA-256 bootstrapping, encrypts stored API keys at rest using HKDF AES, and relies purely on atomic file IO operations.
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌──────────────────────────────┐
-│   Tauri Desktop App          │
-│ ┌──────────┐ ┌─────────────┐ │
-│ │ React UI │ │ Rust Backend │◄── manages containers via bollard
-│ └──────────┘ └──────┬──────┘ │
-└─────────────────────┼────────┘
-                      │ Docker API
-              ┌───────▼───────┐
-              │ Docker Engine │
-              │  ┌──────────┐ │
-              │  │ Agent VM │ │  ← Chromium + noVNC + ffmpeg
-              │  │          │ │  ← sentinel-agent (tool-use loop)
-              │  │          │ │  ← /workspace + /downloads
-              │  └──────────┘ │
-              └───────────────┘
+┌─────────────────────┐
+│   Python CLI App    │ ◄─ interactive loop (-audit, -analyze, -config)
+└─────────┬───────────┘
+          │ Subprocess Engine
+          ├─────────────────────────────────┐
+          │ (Dynamic Web Scans)             │ (Local Folder Scans)
+  ┌───────▼───────┐                 ┌───────▼───────┐
+  │ HTTP Engine   │                 │ Native Python │
+  │  ┌─────────┐  │                 │  ┌─────────┐  │
+  │  │ Session │  │ ← Requests &    │  │ Path    │  │ ← Strictly bounded to targeted folder
+  │  │ Sandbox │  │   Live Audits   │  │ Sandbox │  │
+  │  └─────────┘  │                 │  └─────────┘  │
+  └───────┬───────┘                 └───────┬───────┘
+          │                                 │ 
+          │ Extracted Context               │ 
+  ┌───────▼─────────────────────────────────▼───────┐
+  │                 LLM Processor                   │ ← Analyzes outputs via Cloud APIs or Local Ollama
+  └─────────────────────────────────────────────────┘
 ```
-
-### Agent Container Stack
-
-| Component | Purpose |
-|-----------|---------|
-| **sentinel-agent** | Rust binary with tool-use loop (up to 15 iterations) |
-| **Chromium** | Full browser for web tasks |
-| **noVNC** | Streams agent's screen to your desktop app |
-| **ffmpeg** | Records screen for replay |
-| **openbox** | Lightweight window manager |
-| **/workspace** | Mounted project folder (optional) |
-| **/downloads** | Isolated download folder (not mounted to host) |
-
-### Agent Tools
-
-The agent has 6 built-in tools it can use autonomously:
-
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read any file in the workspace |
-| `write_file` | Write/create files |
-| `list_files` | Browse directory contents |
-| `shell` | Run shell commands inside the container |
-| `browse` | Open URLs in Chromium (visible in live view) |
-| `search_web` | Search Google and view results |
-
----
-
-## 🐳 How Isolation Works
-
-```
-Your PC                              Docker Container
-──────                               ────────────────
-C:\Users\you\my-app\  ◄═ bind mount ═►  /workspace/
-                                         /downloads/  ← isolated, not on host
-Everything else:       ❌ INVISIBLE      Agent has its own:
-  ~/.ssh/              ❌ Not mounted      • Browser
-  C:\Windows\          ❌ Not mounted      • File system
-  Other projects/      ❌ Not mounted      • Network (for LLM + web)
-```
-
-| Layer | Protection |
-|-------|-----------|
-| **Scope Isolation** | Agent only sees the directory you select (or nothing) |
-| **Process Isolation** | Runs inside Linux, can't access your Windows processes |
-| **Download Isolation** | Downloads stay in `/downloads` inside the container |
-| **Memory Limits** | Docker enforces caps (configurable, default 512 MB) |
-| **Autonomy Levels** | From full access to read-only mode |
-| **Disposability** | Destroy the container instantly — zero cleanup |
 
 ---
 
@@ -101,54 +56,66 @@ Everything else:       ❌ INVISIBLE      Agent has its own:
 
 ### Prerequisites
 
-- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** — required for agent containers
-- **[Rust](https://www.rust-lang.org/tools/install)** — latest stable (for building from source)
-- **[Node.js & npm](https://nodejs.org/)** — for the UI
+- **[Python 3.9+](https://www.python.org/downloads/)**
+- **[Ollama](https://ollama.com/)** (Optional but Recommended) — For running models completely locally, recommended for `-analyze` privacy.
 
-### Quick Start
+### Installation
 
-```bash
-# 1. Build the agent Docker image
-docker build -t sentinel-agent:latest -f docker/Dockerfile .
-
-# 2. Install UI dependencies
-cd sentinel-ui && npm install
-
-# 3. Launch in dev mode
-npx tauri dev
-```
-
-### Build Installer (.exe)
+Clone the repository and install the strict dependencies via `pip`:
 
 ```bash
-cd sentinel-ui
-npx tauri build
-# Output: src-tauri/target/release/bundle/nsis/Sentinel_0.2.0_x64-setup.exe
+git clone https://github.com/Doom-pixel/sentinel.git
+cd sentinel
+pip install -r requirements.txt
+pip install -e .
 ```
+
+*Note: As a zero-trust platform, Sentinel explicitly checks the exact SHA-256 hashes of the files installed via `requirements.txt` at runtime. Modifications to these core libraries will halt the engine.*
+
+### Usage
+
+Because the package implements `entry_points`, installing it via Pip automatically adds Sentinel to your system PATH. You can launch Sentinel from anywhere simply by typing:
+
+```bash
+sentinel
+```
+
+*Alternatively, you can run the script directly from the project folder via `python sentinel.py`.*
+
+**Available Commands:**
+- `-analyze [path]`: Run the static code sandbox against a local path natively. If no path is provided, it prompts to analyze the current directory.
+- `-audit <url>`: Run the native Python web audit engine against a target (e.g., `-audit https://example.com/`).
+- `-recon <domain>`: Run a stealthy passive reconnaissance intelligence gather natively (e.g., `-recon example.com`).
+- `-vuln <url>`: Run aggressive targeted vulnerability scanning natively (e.g., `-vuln https://example.com/`).
+- `-report <file.md>`: Compile any generated Markdown report into a locally styled HTML web page.
+- `-history`: View an executable history log of all your previous analysis runs.
+- `-config`: Run the setup wizard to configure API keys.
+- `-vp`: View currently configured providers.
+- `-ep`: Enable additional providers without deleting existing ones.
+- `-llm`: Configure custom target models for active providers.
+- `clear`: Clear the terminal screen.
 
 ---
 
 ## 🔑 LLM Providers
 
-| Provider | Models | Local? | API Key? |
-|----------|--------|--------|----------|
-| **Ollama** | llama3.3, qwen2.5, mistral, deepseek-r1 | ✅ | No |
-| **OpenAI** | gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, o3-mini | ❌ | Yes |
-| **Anthropic** | claude-sonnet-4, claude-3.5-haiku, claude-3.5-sonnet | ❌ | Yes |
-| **Deepseek** | deepseek-chat, deepseek-reasoner | ❌ | Yes |
-| **xAI** | grok-3, grok-3-mini | ❌ | Yes |
-| **Google** | gemini-2.5-flash, gemini-2.5-pro | ❌ | Yes |
+| Provider | Requirement | Privacy Warning |
+|----------|-------------|-----------------|
+| **Ollama** | Local installation running on `localhost:11434`. | **Safe** - Code never leaves your machine. |
+| **Google Gemini** | Valid API Key. | Data sent to cloud during `-analyze`. |
+| **Anthropic Claude** | Valid API Key. | Data sent to cloud during `-analyze`. |
+| **OpenAI** | Valid API Key. | Data sent to cloud during `-analyze`. |
+| **Grok (xAI)** | Valid API Key. | Data sent to cloud during `-analyze`. |
+| **Groq** | Valid API Key. | Data sent to cloud during `-analyze`. |
 
-> **Custom models**: Click "Custom ↗" in the model selector to type any model name.
-
-For **Ollama**, install from [ollama.com](https://ollama.com) and pull a model: `ollama pull [model's name]`
+*You can configure specific models for each of these providers using the `-llm` command in the CLI. Sentinel will explicitly warn you before sending local code to cloud providers during the `-analyze` flow.*
 
 ---
 
 ## ⚖️ License
 
 This project is licensed under the **MIT License**.
-See the [LICENSE](https://github.com/Doom-pixel/sentinel/blob/main/LICENSE) file for more precision.
+See the [LICENSE](https://github.com/Doom-pixel/sentinel/blob/main/LICENSE) file for details.
 
 ## 💬 Community
 

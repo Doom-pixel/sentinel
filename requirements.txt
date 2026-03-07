@@ -1,0 +1,13 @@
+# Sentinel v1.0.0 - Pinned Dependencies
+# Install with: pip install --require-hashes -r requirements.txt
+#
+# SECURITY NOTE: All hashes are SHA256 digests of the installed package directories.
+# These are verified at runtime by sentinel.py's verify_package_integrity() function.
+# For pip-level hash verification, use wheel hashes from PyPI directly.
+
+rich>=13.7.0
+requests>=2.31.0
+ollama>=0.1.7
+markdown>=3.5.1
+packaging>=21.0
+cryptography>=42.0.0
