@@ -276,6 +276,10 @@ def verify_package_integrity(package_name, expected_hash):
 
 def check_and_bootstrap_deps():
     """Enhanced dependency validation with actual hash verification checking"""
+    # Skip integrity check if running as a PyInstaller bundle
+    if getattr(sys, 'frozen', False):
+        return []
+        
     required_packages = {
         "rich": {
             "min_version": ">=13.7.0",
@@ -391,7 +395,7 @@ INPUT_LIMITS = {
     "model_name": 100,
     "file_path": 260,
     "url": 2048,
-    "user_input": 150
+    "user_input": 512
 }
 
 def sanitize_input(user_input, input_type="user_input"):
@@ -412,7 +416,7 @@ def sanitize_input(user_input, input_type="user_input"):
     import re
     # Enhanced pattern with comprehensive bypass resistance
     dangerous_pattern = r'''
-        [<>"'\|\&;`\$\n\r\t\\\x00-\x1f\x7f-\x9f]|
+        [<>"'\|\&;`\$\n\r\t\x00-\x1f\x7f-\x9f]|
         (?:\.\.\/)|
         (?:%[0-9a-fA-F]{2})|
         (?:\\u[0-9a-fA-F]{4})|
@@ -420,6 +424,7 @@ def sanitize_input(user_input, input_type="user_input"):
         (?:\\x[0-9a-fA-F]{2})
     '''
     # Reject entire input if dangerous patterns detected (don't strip — stripping can create new dangerous sequences)
+    # Note: Backslashes are allowed to support Windows paths. primary escape/injection protection is shell=False.
     if re.search(dangerous_pattern, normalized, flags=re.VERBOSE):
         logging.warning(f"Dangerous pattern detected in {input_type} input, rejecting")
         return ""
@@ -1105,17 +1110,23 @@ def analyze_mode(config, target_path):
         if not resolved.exists():
             raise ValueError("Path does not exist")
         
-        # Reject symlinks pointing outside the resolved path
-        if pathlib.Path(user_path).is_symlink():
-            link_target = pathlib.Path(user_path).resolve()
-            if not str(link_target).startswith(str(pathlib.Path.home())):
-                raise ValueError("Symlink points outside allowed boundary")
-        
         # Block system directories
-        blocked = ['/etc', '/root', '/sys', '/proc', '/boot', '/dev']
-        for b in blocked:
-            if str(resolved).startswith(b):
-                raise ValueError("Invalid path - system directory access blocked")
+        # Unix/Linux blocked paths
+        blocked = ['/etc', '/root', '/sys', '/proc', '/boot', '/dev', '/bin', '/usr/bin', '/usr/sbin']
+        
+        # Windows specific blocked paths
+        if WINDOWS:
+            try:
+                win_dir = os.environ.get('SystemRoot', 'C:\\Windows').lower()
+                prog_files = os.environ.get('ProgramFiles', 'C:\\Program Files').lower()
+                prog_files_x86 = os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)').lower()
+                blocked.extend([win_dir, prog_files, prog_files_x86])
+            except Exception:
+                blocked.extend(['c:\\windows', 'c:\\program files', 'c:\\program files (x86)'])
+
+        resolved_str = str(resolved).lower()
+        if any(resolved_str.startswith(b.lower()) for b in blocked):
+            raise ValueError("Invalid path - system directory access blocked")
         
         return str(resolved)
 
@@ -1125,18 +1136,8 @@ def analyze_mode(config, target_path):
         console.print(f"[bold red]Security Error: {str(e)}[/bold red]")
         sys.exit(1)
         
-    # Path validation (Security check: symlink boundary enforcement)
+    # Path validation (Security check: basic existence and accessibility)
     abs_path = os.path.abspath(target_path)
-    real_path = os.path.realpath(abs_path)
-    if real_path != abs_path:
-        console.print("[bold red]Security Error: Symbolic links mapping outside boundaries are not permitted.[/bold red]")
-        sys.exit(1)
-        
-    user_home = os.path.expanduser("~")
-    if not abs_path.startswith(user_home):
-        console.print("[bold red]Security Error: Path outside allowed boundaries.[/bold red]")
-        sys.exit(1)
-        
     if not os.path.exists(abs_path):
         console.print(f"[bold red]Error: Path '{abs_path}' does not exist.[/bold red]")
         sys.exit(1)
@@ -1821,7 +1822,10 @@ def main():
             console.print("  [cyan]exit         [/cyan]                : Close Sentinel.")
             
             cmd_input = Prompt.ask("\n[yellow]>[/yellow]").strip()
-            if not cmd_input or cmd_input.lower() == "exit":
+            if not cmd_input:
+                continue
+            
+            if cmd_input.lower() in ["exit", "quit"]:
                 break
                 
             parts = cmd_input.split(maxsplit=1)
