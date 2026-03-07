@@ -9,7 +9,7 @@ import queue
 import time
 import subprocess
 
-__version__ = "2.0.0"
+__version__ = "1.0.0"
 def detect_platform():
     """Proper platform detection with graceful fallbacks"""
     if sys.platform.startswith('win'):
@@ -323,7 +323,6 @@ def check_and_bootstrap_deps():
                     incompatible.append((package, installed_version, min_version, data["hash"]))
                     continue
                     
-            # ACTUAL HASH VERIFICATION - enforced
             if not verify_package_integrity(package, data["hash"]):
                 logging.critical(f"Package {package} failed integrity check")
                 incompatible.append((package, "INTEGRITY_FAIL", min_version, data["hash"]))

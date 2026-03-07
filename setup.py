@@ -12,7 +12,7 @@ setup(
     # Note: For secure deployments, consider using pip install --require-hashes
     # to protect against dependency chain attacks and typosquatting.
     name='sentinel-cli',
-    version='2.0',
+    version='1.0.0',
     py_modules=['sentinel'],
     install_requires=[
         "rich==14.3.2",

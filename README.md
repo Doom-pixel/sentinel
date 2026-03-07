@@ -1,6 +1,3 @@
-
-# WE ARE EXPERIMENTING AN ISSUE ON THE MERGING OF THE NEW VERSION WITH THE OLDER ONE. PLEASE, DO NOT DOWNLOAD ANYTHING FOR NOW.
-
 # 🛡️ SENTINEL v1.0.0 (Stargenesis)
 
 **Zero-Trust Agentic Security Orchestration Engine. CLI-Powered.**
