@@ -61,6 +61,9 @@ SENTINEL is an autonomous AI agent running as a powerful, lightweight Python CLI
 - **[Ollama](https://ollama.com/)** (Optional but Recommended) — For running models completely locally, recommended for `-analyze` privacy.
 
 ### Installation
+Download the .exe from here : https://github.com/Doom-pixel/sentinel/releases/tag/Stargenesis
+
+OR 
 
 Clone the repository and install the strict dependencies via `pip`:
 
