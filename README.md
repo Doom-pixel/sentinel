@@ -5,6 +5,7 @@
 SENTINEL is an autonomous AI agent running as a powerful, lightweight Python CLI. It bridges the gap between dynamic web auditing and deep-dive **local static codebase analysis**. By combining advanced Python-native security logic with LLM reasoning, Sentinel delivers comprehensive, automated security audits directly from your terminal.
 
 [![Join Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/k967Q5q6xZ)
+<img width="924" height="409" alt="image" src="https://github.com/user-attachments/assets/cd2c2820-4297-479a-a677-65b9d892b4b0" />
 
 ---
 
